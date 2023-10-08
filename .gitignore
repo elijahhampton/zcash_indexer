@@ -1,0 +1,9 @@
+*.txt
+.vscode
+testnet
+testnet1
+testnet2
+testnet3
+syncer.o
+syncer
+zcash.conf
