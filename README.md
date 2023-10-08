@@ -1,5 +1,5 @@
 # Zcash Blockchain Syncing Module
-A C++ module for experimenting with syncing the zcash blockchain.
+A C++ module designed for exploratory synchronization of the Zcash blockchain.
 
 ## Installation
 
