@@ -7,3 +7,4 @@ testnet3
 syncer.o
 syncer
 zcash.conf
+*.yaml

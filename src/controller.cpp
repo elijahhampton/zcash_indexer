@@ -8,10 +8,14 @@
 #include <thread>
 #include <memory>
 #include <mutex>
+#include <yaml-cpp/yaml.h>
 
-Controller::Controller(): rpcClient("http://127.0.0.1:8232", "elijah", "Hamptonej1!"), syncer(rpcClient, database)
+YAML::Node config = YAML::LoadFile("config.yaml");
+
+Controller::Controller(): rpcClient(config["rpc"]["host"], config["rpc"]["username"], config["rpc"]["password"]), syncer(rpcClient, database)
 {
-    if (!this->database.Connect(20, "dbname=postgres user=postgres password=mysecretpassword hostaddr=127.0.0.1 port=5432"))
+    std::string connStr = std::format("dbname={} user={} password={} hostaddr={} port={}", config["database"]["dbname"], config["database"]["username"], config["database"]["password"], config["database"]["hostaddr"], config["database"]["port"]);
+    if (!this->database.Connect(20, connStr))
     {
         throw std::runtime_error("Database failed to open.");
     }
