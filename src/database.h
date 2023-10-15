@@ -27,13 +27,12 @@ public:
     Database();
     ~Database();
     bool CreateTables();
-    bool Connect(size_t poolSize, std::string);
+    bool Connect(size_t poolSize, const std::string& connection_string);
     void StoreBlock(const Json::Value& block);
     void StoreTransactions(const Json::Value& block);
     void StoreBlockHeader(const Json::Value& block);
     void StoreChunk(const std::vector<Json::Value> &chunk);
-    unsigned int GetSyncedBlockCountFromDB();
-    std::string LoadConfig(const std::string &path);
+    unsigned int GetSyncedBlockCountFromDB()
 private:
     void ShutdownConnections();
     bool ReleaseConnection(std::unique_ptr<pqxx::connection> conn);
