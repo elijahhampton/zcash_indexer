@@ -17,7 +17,7 @@ try : rpcClient(config.rpc_url, config.rpc_username, config.rpc_password), synce
         " user=" + config.db_user +
         " password=" + config.db_password +
         " host=" + config.db_host +
-        " port=" + config.db_port
+        " port=" + std::to_string(config.db_port);
 
     if (!this->database.Connect(20, connection_string))
     {

@@ -32,7 +32,7 @@ public:
     void StoreTransactions(const Json::Value& block);
     void StoreBlockHeader(const Json::Value& block);
     void StoreChunk(const std::vector<Json::Value> &chunk);
-    unsigned int GetSyncedBlockCountFromDB()
+    unsigned int GetSyncedBlockCountFromDB();
 private:
     void ShutdownConnections();
     bool ReleaseConnection(std::unique_ptr<pqxx::connection> conn);
