@@ -33,7 +33,7 @@ public:
     void StoreBlockHeader(const Json::Value& block);
     void StoreChunk(const std::vector<Json::Value> &chunk);
     unsigned int GetSyncedBlockCountFromDB();
-
+    std::string LoadConfig(const std::string &path);
 private:
     void ShutdownConnections();
     bool ReleaseConnection(std::unique_ptr<pqxx::connection> conn);

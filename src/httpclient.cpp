@@ -8,7 +8,7 @@
 CustomClient::CustomClient(const std::string &url, const std::string &username, const std::string &password)
     : httpClient(url), rpcClient(httpClient, jsonrpc::JSONRPC_CLIENT_V1)
 {
-    std::cout << "Initializing http client with url: " << url << std::endl
+    std::cout << "Initializing http client with url: " << url << std::endl;
     std::cout << "Initializing http client with username: " << username << std::endl;
     std::cout << "Initializing http client with password: " << password << std::endl;
 

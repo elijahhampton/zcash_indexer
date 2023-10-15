@@ -1,4 +1,7 @@
 #include "database.h"
+#include <fstream>
+#include <string>
+#include <iostream>
 
 std::mutex Database::databaseConnectionCloseMutex;
 std::condition_variable Database::databaseConnectionCloseCondition;
@@ -27,7 +30,6 @@ bool Database::Connect(size_t poolSize, std::string conn_str)
         std::cout << e.what() << std::endl;
         return false;
     }
-
     return false;
 }
 
@@ -43,6 +45,28 @@ std::unique_ptr<pqxx::connection> Database::GetConnection()
     return conn;
 }
 
+std::string Database::LoadConfig(const std::string &path)
+{
+
+    // std::ifstream cfg_file(path);
+
+    // if (!cfg_file.is_open()) {
+    //     std::cerr << "Failed to open the config file at: " << path << std::endl;
+    //     return "";
+    // }
+
+    // std::string conn_str;
+    // std::getline(cfg_file, conn_str);
+
+    // cfg_file.close();
+
+    // if (conn_str.empty()) {
+    //     std::cerr << "Config file is empty or doesn't contain any valid lines." << std::endl;
+    //     return "";
+    // }
+    return "dbname=postgres user=postgres password=mysecretpassword host=127.0.0.1 port=5432";
+}
+
 bool Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn)
 {
     std::lock_guard<std::mutex> lock(poolMutex);
@@ -56,7 +80,6 @@ void Database::ShutdownConnections()
 
 bool Database::CreateTables()
 {
-    std::lock_guard<std::mutex> lock(poolMutex);
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
     std::vector<std::string> tableCreationQueries;
 
@@ -487,7 +510,6 @@ void Database::StoreTransactions(const Json::Value &block)
 
 unsigned int Database::GetSyncedBlockCountFromDB()
 {
-    std::lock_guard<std::mutex> lock(poolMutex);
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
 
     try
