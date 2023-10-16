@@ -79,11 +79,13 @@ int main(int argc, char* argv[])
 {
     InitConfig initConfig;
 
+    // Check the number of arguments injected
     if (argc < 8)
     {
         throw std::runtime_error("Invalid number of arguments. Arguments must include: --dbname, --dbpassword, --dbuser, --dbhost, --dbport, --rpcusername, --rpcpassword, --rpcurl");
     }
 
+    //  Check for the required arguments and define the InitConfig fields
     for (int i = 1; i < argc; i++)
     {
         std::string arg = argv[i];
