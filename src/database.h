@@ -19,6 +19,9 @@ private:
     std::queue<std::unique_ptr<pqxx::connection>> connectionPool;
     std::mutex poolMutex;
     std::mutex db_mutex;
+    void ShutdownConnections();
+    bool ReleaseConnection(std::unique_ptr<pqxx::connection> conn);
+    std::unique_ptr<pqxx::connection> GetConnection();
     
 public:
     static std::mutex databaseConnectionCloseMutex;
@@ -33,9 +36,6 @@ public:
     void StoreBlockHeader(const Json::Value& block);
     void StoreChunk(const std::vector<Json::Value> &chunk);
     unsigned int GetSyncedBlockCountFromDB();
-private:
-    void ShutdownConnections();
-    bool ReleaseConnection(std::unique_ptr<pqxx::connection> conn);
-    std::unique_ptr<pqxx::connection> GetConnection();
+
 
 };

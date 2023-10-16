@@ -8,3 +8,4 @@ syncer.o
 syncer
 zcash.conf
 *.yaml
+scripts
