@@ -62,28 +62,24 @@ bool Database::CreateTables()
     std::vector<std::string> tableCreationQueries;
 
     std::string createBlocksTable = "CREATE TABLE blocks ("
-                                    "id TEXT PRIMARY KEY, "
-                                    "block_number INTEGER, "
-                                    "time INTEGER, "
-                                    "nonce TEXT"
+                                    "hash TEXT PRIMARY KEY, "
+                                    "height INTEGER, "
+                                    "timestamp INTEGER, "
+                                    "nonce TEXT,"
+                                    "size INTEGER,"
+                                    "num_transactions INTEGER,"
+                                    "output INTEGER"
                                     ")";
 
     tableCreationQueries.push_back(createBlocksTable);
 
     std::string createTransactionsTable = "CREATE TABLE transactions ("
                                           "txid TEXT PRIMARY KEY, "
-                                          "block_height TEXT, "
                                           "sender TEXT, "
-                                          "amount TEXT, "
+                                          "public_output TEXT, "
                                           "fees TEXT, "
                                           "hash TEXT, "
-                                          "prevBlockHash TEXT, "
-                                          "nextBlockHash TEXT, "
-                                          "version TEXT, "
-                                          "merkleRoot TEXT, "
                                           "timestamp TEXT, "
-                                          "difficulty TEXT, "
-                                          "nonce TEXT, "
                                           "height TEXT"
                                           ")";
 
@@ -166,7 +162,7 @@ void Database::StoreChunk(const std::vector<Json::Value> &chunk)
 
         pqxx::work insertBlockWork(*conn.get());
         conn->prepare("insert_block",
-                      "INSERT INTO blocks (id, block_number, time, nonce) VALUES ($1, $2, $3, $4)");
+                      "INSERT INTO blocks (hash, height, timestamp, nonce, size, num_transactions, output) VALUES ($1, $2, $3, $4, $5, $6, $7)");
 
         for (const auto &item : chunk)
         {
@@ -182,8 +178,23 @@ void Database::StoreChunk(const std::vector<Json::Value> &chunk)
             const Json::Value transactions = item["tx"];
             const std::string hash = item["hash"].asString();
             const int height = item["height"].asLargestInt();
+            const int size =  item["size"].asInt();
 
-            insertBlockWork.exec_prepared("insert_block", hash, height, timestamp, nonce);
+            unsigned int blockOutputAccumulator = 0;
+
+            for (const Json::Value tx : transactions) 
+            {
+                for (const Json::Value &voutItem : tx["vout"])
+                {
+                    blockOutputAccumulator += voutItem["value"].asInt();
+
+                }
+
+            }
+            const int numTxs =  item["tx"].size();
+
+
+            insertBlockWork.exec_prepared("insert_block", hash, height, timestamp, nonce, size, numTxs, blockOutputAccumulator);
 
             this->StoreTransactions(item);
         }
@@ -227,10 +238,9 @@ void Database::StoreTransactions(const Json::Value &block)
         conn->prepare(insert_transactions_prepare,
                       R"(
         INSERT INTO transactions 
-        (txid, block_height, sender, amount, fees, hash, prevBlockHash, nextBlockHash, version, merkleRoot, timestamp, difficulty, nonce, height)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        (txid, sender, public_output, fees, hash, timestamp, height)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         )");
-  
 
         conn->prepare(insert_transparent_outputs_prepare,
                       R"(
@@ -460,7 +470,7 @@ void Database::StoreTransactions(const Json::Value &block)
                     }
                 }
 
-                work.exec_prepared(insert_transactions_prepare, txid, height, sender, amount, fees, hash, prevBlockHash, nextBlockHash, version, merkleRoot, timestamp, difficulty, nonce, height);
+                work.exec_prepared(insert_transactions_prepare, txid, sender, amount, fees, hash, timestamp, height);
             }
             catch (const pqxx::sql_error &e)
             {
@@ -493,7 +503,7 @@ unsigned int Database::GetSyncedBlockCountFromDB()
     try
     {
         pqxx::work tx(*conn.get());
-        std::optional<pqxx::row> row = tx.exec1("SELECT block_number FROM blocks ORDER BY block_Number DESC LIMIT 1;");
+        std::optional<pqxx::row> row = tx.exec1("SELECT height FROM blocks ORDER BY height DESC LIMIT 1;");
 
         if (row.has_value())
         {
