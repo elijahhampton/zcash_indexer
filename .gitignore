@@ -9,3 +9,5 @@ syncer
 zcash.conf
 *.yaml
 scripts
+launch.json
+.vscode

@@ -19,12 +19,14 @@ try : rpcClient(config.rpc_url, config.rpc_username, config.rpc_password), synce
         " host=" + config.db_host +
         " port=" + std::to_string(config.db_port);
 
-    if (!this->database.Connect(20, connection_string))
+    // Five connections are assigned to each hardware thread
+    unsigned int poolSize = std::thread::hardware_concurrency() * 5;
+    if (!this->database.Connect(poolSize, connection_string))
     {
         throw std::runtime_error("Database failed to open.");
     }
 }
-catch (const std::runtime_error &e)
+catch (const std::exception& e)
 {
     std::cerr << "Error: " << e.what() << std::endl;
     throw;

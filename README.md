@@ -20,35 +20,7 @@ For libraries not available via Homebrew, you may need to download and install t
 If you're on a different operating system, you'll need to use its respective package manager or install the libraries manually.
 Once you have installed all the necessary libraries, you can proceed to build the project as described in the previous section.
 
-## Building the Executable
-To build the executable, simply navigate to the project directory in your terminal and run:
-```bash
-make
-```
-To clean up the build artificats, run:
-```bash
-make clean 
-```
-
 ## Configuration and Local Setup
-
-### Loading Database Parameters from YAML
-
-This project uses a YAML file to load configuration parameters for connecting to a PostgreSQL database. Here is how you can do it:
-
- **Install yaml-cpp**:
-   If you are using Homebrew on macOS, you can install it with the following command:
-   ```bash
-   brew install yaml-cpp
-   ```
-
-**Create a YAML Configuration File:**
-
-Create a file named config.yaml in the project root with the following content:
-database:
-  host: "localhost"
-  user: "username"
-  password: "password"
 
 **Running PostgreSQL with Docker**
 
@@ -64,3 +36,39 @@ docker pull postgres
 docker run --name some-postgres -e POSTGRES_PASSWORD=mysecretpassword -d postgres
 
 ```
+
+## Building the Executable
+To build the executable, simply navigate to the project directory in your terminal and run:
+```bash
+make
+```
+To clean up the build artificats, run:
+```bash
+make clean 
+```
+
+## Executing the program
+```bash
+./syncer --dbname postgres --dbuser postgres --dbpassword mysecretpassword --dbhost localhost --dbport 5432 --rpcusername ZCASH_CONF_RPC_USERNAME --rpcpassword ZCASH_CONF_RPC_PASSWORD --rpcurl ZCASH_CONF_RPC_URL
+```
+
+## Debugging with LLDB
+### Launching LLDB with Target Executable:
+This command launches LLDB and loads syncer as the target executable. LLDB should now be awaiting further commands.
+```bash
+lldb syncer
+```
+
+### Setting Runtime Arguments:
+This command sets the runtime arguments for the syncer executable. These arguments are necessary for connecting to the specified database and RPC server.
+```bash
+settings set -- target.run-args --dbname postgres --dbuser postgres --dbpassword mysecretpassword --dbhost localhost --dbport 5432 --rpcusername elijah --rpcpassword Hamptonej1! --rpcurl http://127.0.0.1:8232
+```
+
+### Running the executable
+This command tells LLDB to run the syncer executable. Execution will proceed until a breakpoint is hit, or the program exits or crashes.
+```bash
+run
+```
+
+
