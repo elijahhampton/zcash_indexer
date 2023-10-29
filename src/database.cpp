@@ -38,6 +38,7 @@ std::unique_ptr<pqxx::connection> Database::GetConnection()
 {
     try
     {
+        std::cout << "HI" << std::endl;
         std::unique_lock<std::mutex> lock(poolMutex);
         poolCondition.wait(lock, [this]
                            { return !connectionPool.empty(); });
