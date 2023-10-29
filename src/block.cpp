@@ -5,6 +5,12 @@
 #include <sstream>
 #include <algorithm>
 
+
+void Block::Verify() {}
+void Block::Parse() {}
+void Block::ParseBlockHeader(const Json::Value& header) {}
+void Block::ParseTransactions(const Json::Value& transactions) {}
+
 std::string AddressUtils::Base58Encode(uint8_t const *bytes, size_t size)
 {
     std::vector<unsigned char> input(size);

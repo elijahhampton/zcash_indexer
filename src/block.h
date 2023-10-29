@@ -43,11 +43,13 @@ constexpr const char* _delimiter = " ";
 
 const char *const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
-class BlockValidator {
+class Block {
     public:
-        static bool ValidateBlock(const Json::Value& transaction);
-        static bool ValidateTransaction(const Json::Value& transaction);
-};
+    private:
+        void Parse() {}
+        void ParseBlockHeader() {}
+        void ParseTransactions() {}
+}
 
 class AddressUtils {
     public:

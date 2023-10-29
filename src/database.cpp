@@ -457,12 +457,21 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
     pqxx::work insertBlockWork(*conn.get());
 
     bool shouldCommitBlock{true};
-
     auto timeSinceLastCheckpoint = std::chrono::steady_clock::now();
     for (const auto &item : chunk)
     {
 
+        Block currentBlock(item);
+        bool isValid = currentBlock->Verify();
+        if (isValid) {
+            currentBlock->Parse();
+        } else {
+            continue;
+        }
+
+
         // Check for null Json::Value in block chunk
+        // isValid
         if (item == Json::nullValue)
         {
             // Mark as missed and add to missed blocks
