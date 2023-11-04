@@ -6,7 +6,6 @@
  */
 
 #include "database.h"
-#include "block.h"
 #include "httpclient.h"
 #include "json/json.h"
 #include <iostream>
