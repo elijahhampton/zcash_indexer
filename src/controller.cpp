@@ -9,7 +9,7 @@
 #include <memory>
 #include <mutex>
 
-Controller::Controller(InitConfig config)
+Controller::Controller(const InitConfig &config)
 try : rpcClient(config.rpc_url, config.rpc_username, config.rpc_password), syncer(rpcClient, database)
 {
     const std::string connection_string =
@@ -63,7 +63,7 @@ void Controller::StartSyncLoop()
             syncThread.detach();
         }
 
-        std::cout << "Sleeping before checking sync thread: " << syncInterval.count() << " seconds" << std::endl;
+        std::cout << "Sleeping before checking sync thread: " << syncInterval.count() << " seconds" << std::flush;
         std::this_thread::sleep_for(syncInterval);
     }
 }

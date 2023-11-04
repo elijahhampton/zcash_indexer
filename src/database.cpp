@@ -27,7 +27,6 @@ bool Database::Connect(size_t poolSize, const std::string &conn_str)
     }
     catch (std::exception &e)
     {
-        std::cout << e.what() << std::endl;
         return false;
     }
     return false;
@@ -38,7 +37,6 @@ std::unique_ptr<pqxx::connection> Database::GetConnection()
 {
     try
     {
-        std::cout << "HI" << std::endl;
         std::unique_lock<std::mutex> lock(poolMutex);
         poolCondition.wait(lock, [this]
                            { return !connectionPool.empty(); });
@@ -102,16 +100,14 @@ bool Database::CreateTables()
                                     "nonce TEXT,"
                                     "size INTEGER,"
                                     "num_transactions INTEGER,"
-                                    "output INTEGER"
+                                    "output DOUBLE PRECISION"
                                     ")";
 
     tableCreationQueries.push_back(createBlocksTable);
 
     std::string createTransactionsTable = "CREATE TABLE transactions ("
-                                          "txid TEXT PRIMARY KEY, "
-                                          "sender TEXT, "
+                                          "tx_id TEXT PRIMARY KEY, "
                                           "public_output TEXT, "
-                                          "fees TEXT, "
                                           "hash TEXT, "
                                           "timestamp TEXT, "
                                           "height TEXT"
@@ -127,44 +123,39 @@ bool Database::CreateTables()
     tableCreationQueries.push_back(createChunkCheckpointTable);
 
     std::string createTransparentInputsTableStmt = "CREATE TABLE transparent_inputs ("
-                                                   "txid TEXT PRIMARY KEY, "
+                                                   "tx_id TEXT PRIMARY KEY, "
                                                    "vin_tx_id TEXT, "
-                                                   "v_out_idx TEXT, "
-                                                   "sender TEXT, "
+                                                   "v_out_idx INTEGER, "
                                                    "coinbase TEXT);";
 
     tableCreationQueries.push_back(createTransparentInputsTableStmt);
 
     std::string createTransparentOutputsTableStmt = "CREATE TABLE transparent_outputs ("
-                                                    "recipients TEXT, "
-                                                    "amount DOUBLE PRECISION, "
-                                                    "fees DOUBLE PRECISION);";
+                                                    "tx_id TEXT, "
+                                                    "output_index INTEGER, "
+                                                    "recipients TEXT[], "
+                                                    "value DOUBLE PRECISION);";
 
     tableCreationQueries.push_back(createTransparentOutputsTableStmt);
-
-    std::string createJoinsplitsTable = "CREATE TABLE joinsplits ("
-                                        "txid TEXT PRIMARY KEY,"
-                                        "nullifiers TEXT,"
-                                        "commitments TEXT,"
-                                        "vpub_old TEXT,"
-                                        "vpub_new TEXT,"
-                                        "anchor TEXT,"
-                                        "oneTimePubKey TEXT,"
-                                        "randomSeed TEXT,"
-                                        "proof TEXT"
-                                        ");";
-
-    tableCreationQueries.push_back(createJoinsplitsTable);
 
     // TODO: batch inset
     try
     {
         for (const std::string &query : tableCreationQueries)
         {
+            try {
             std::cout << query << std::endl;
             pqxx::work w(*conn.get());
             w.exec(query);
             w.commit();
+            } catch(const pqxx::sql_error &e) {
+                if (e.sqlstate() == "42P07") {
+                    std::cerr << "Table already exists: " << e.what() << std::endl;
+                    continue;
+                } else {
+                    throw;
+                }
+            }
         }
     }
     catch (const pqxx::sql_error &e)
@@ -172,6 +163,7 @@ bool Database::CreateTables()
         std::cout << e.what() << std::endl;
         std::cout << "SQL Error code: " << e.sqlstate() << std::endl;
         uint errCode = 0;
+
         if (errCode != std::string::npos)
         {
             std::cerr << "Table already exists. Continuing execution." << std::endl;
@@ -234,10 +226,14 @@ void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProc
     }
 }
 
-std::optional<Database::Checkpoint> Database::GetCheckpoint(size_t chunkStartHeight)
+std::optional<Database::Checkpoint> Database::GetCheckpoint(signed int chunkStartHeight) 
 {
-            std::unique_ptr<pqxx::connection> conn = this->GetConnection();
-            
+    if (chunkStartHeight == -1) {
+        return std::nullopt;
+    }
+
+    std::unique_ptr<pqxx::connection> conn = this->GetConnection();
+
     try
     {
 
@@ -253,7 +249,7 @@ std::optional<Database::Checkpoint> Database::GetCheckpoint(size_t chunkStartHei
         if (result.empty())
         {
             this->ReleaseConnection(std::move(conn));
-             return std::nullopt;
+            return std::nullopt;
         }
         else
         {
@@ -266,7 +262,7 @@ std::optional<Database::Checkpoint> Database::GetCheckpoint(size_t chunkStartHei
             checkpoint.lastCheckpoint = row["last_checkpoint"].as<size_t>();
 
             this->ReleaseConnection(std::move(conn));
-             return checkpoint;
+            return checkpoint;
         }
     }
     catch (const pqxx::sql_error &e)
@@ -274,13 +270,13 @@ std::optional<Database::Checkpoint> Database::GetCheckpoint(size_t chunkStartHei
         std::cerr << "SQL error: " << e.what() << std::endl;
         std::cerr << "Query was: " << e.query() << std::endl;
         this->ReleaseConnection(std::move(conn));
-         throw;
+        throw;
     }
     catch (const std::exception &e)
     {
         std::cerr << "Error: " << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
-         throw;
+        throw;
     }
 }
 
@@ -318,7 +314,7 @@ void Database::CreateCheckpointIfNonExistent(size_t chunkStartHeight, size_t chu
 std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints()
 {
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
-    
+
     try
     {
         // Obtain checkpoints
@@ -353,90 +349,25 @@ std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints()
     }
     catch (const pqxx::sql_error &e)
     {
-        std::cerr << "SQL error: " << e.what() << std::endl;
-        std::cerr << "SQLSTATE: " << e.sqlstate() << std::endl;
+        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
     }
     catch (const std::exception &e)
     {
-        std::cerr << e.what() << std::endl;
+        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
     }
 }
 
-void Database::AddMissedBlockToChunkCheckpoint(size_t chunkStartHeight, uint64_t blockHeight)
+void Database::AddMissedBlock(size_t blockHeight)
 {
-    // try
-    // {
-    //     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
-    //     pqxx::work transaction(*conn.get());
-
-    //     std::string query =
-    //         "UPDATE checkpoints "
-    //         "SET missed_blocks = array_append(missed_blocks, $1) "
-    //         "WHERE chunk_start_height = $2;";
-
-    //     transaction.exec_params(query, blockHeight, chunkStartHeight);
-    //     transaction.commit();
-    // }
-    // catch (const pqxx::sql_error &e)
-    // {
-    //     std::cerr << "SQL error: " << e.what() << std::endl;
-    //     std::cerr << "SQLSTATE: " << e.sqlstate() << std::endl;
-    //     throw std::runtime_error("Unable to add missed block to chunk checkpoint");
-    // }
-    // catch (const std::exception &e)
-    // {
-    //     std::cerr << e.what() << std::endl;
-    //     throw std::runtime_error("Unable to add missed block to chunk checkpoint");
-    // }
 }
 
-void Database::RemoveMissedBlockFromChunkCheckpoint(size_t chunkStartHeight, uint64_t blockHeight)
+void Database::RemoveMissedBlock(size_t blockHeight)
 {
-    // try
-    // {
-    //     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
-    //     pqxx::work transaction(*conn.get());
-
-    //     // Prepare a statement to remove the block height from the missed_blocks array
-    //     std::string stmt =
-    //         R"(WITH expanded AS (
-    //                 SELECT chunk_start_height, unnest(missed_blocks) AS missed_block
-    //                 FROM checkpoints
-    //                 WHERE chunk_start_height = $1
-    //             ), filtered AS (
-    //                 SELECT chunk_start_height, array_agg(missed_block) AS filtered_missed_blocks
-    //                 FROM expanded
-    //                 WHERE missed_block <> $2
-    //                 GROUP BY chunk_start_height
-    //             )
-    //             UPDATE checkpoints
-    //             SET missed_blocks = filtered.filtered_missed_blocks
-    //             FROM filtered
-    //             WHERE checkpoints.chunk_start_height = filtered.chunk_start_height
-    //             AND checkpoints.chunk_start_height = $1
-    //         )";
-
-    //     transaction.exec_params(stmt, chunkStartHeight, blockHeight);
-    //     transaction.commit();
-    // }
-    // catch (const pqxx::sql_error &e)
-    // {
-    //     std::cerr << "SQL error: " << e.what() << std::endl;
-    //     std::cerr << "SQLSTATE: " << e.sqlstate() << std::endl;
-    //     throw std::runtime_error("Unable to add missed block to chunk checkpoint");
-    // }
-    // catch (const std::exception &e)
-    // {
-    //     std::cerr << e.what() << std::endl;
-    //     throw std::runtime_error("Unable to add missed block to chunk checkpoint");
-    // }
 }
 
-// IMMEDIATE: In StoreChunk you have to know what is the true "range" start height
-// TODO: Handle Rollback or error -> entire block is invalidated -> How to handle if one block is missed? (Solution: Add blocks to checkpoints "missed_blocks: column"
-void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, size_t chunkStartHeight, size_t chunkEndHeight, size_t lastCheckpoint, size_t trueRangeStartHeight)
+void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, signed int chunkStartHeight, signed int chunkEndHeight, signed int lastCheckpoint, signed int trueRangeStartHeight)
 {
     std::cout << "StoreChunk("
               << "ChunkStart=" << chunkStartHeight << " "
@@ -444,9 +375,9 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
               << "LastCheck=" << lastCheckpoint << " "
               << "TrueRange=" << trueRangeStartHeight << std::endl;
     // size_t chunkCurrentProcessingIndex{lastCheckpoint == 0 ? chunkStartHeight : lastCheckpoint + 1};
-    size_t chunkCurrentProcessingIndex{chunkStartHeight};
     std::optional<Database::Checkpoint> checkpointOpt = this->GetCheckpoint(trueRangeStartHeight);
     bool checkpointExist = checkpointOpt.has_value();
+
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
 
     conn->prepare("insert_block",
@@ -460,6 +391,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
     bool shouldCommitBlock{true};
 
     auto timeSinceLastCheckpoint = std::chrono::steady_clock::now();
+    size_t chunkCurrentProcessingIndex{static_cast<size_t>(chunkStartHeight)};
     for (const auto &item : chunk)
     {
 
@@ -467,7 +399,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         if (item == Json::nullValue)
         {
             // Mark as missed and add to missed blocks
-            // this->AddMissedBlockToChunkCheckpoint();
+            this->AddMissedBlock(item["height"].asLargestInt());
             ++chunkCurrentProcessingIndex;
             continue;
         }
@@ -488,38 +420,38 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
             const int size = item["size"].asInt();
             const int numTxs = item["tx"].size();
 
-            unsigned int blockOutputAccumulator = 0;
+            double blockOutputAccumulator = 0;
 
             for (const Json::Value tx : transactions)
             {
                 for (const Json::Value &voutItem : tx["vout"])
                 {
-                    blockOutputAccumulator += voutItem["value"].asInt();
+                    blockOutputAccumulator += voutItem["value"].asDouble();
                 }
             }
-
+            
+            std::cout << "Inserting block" << std::endl;
             insertBlockWork.exec_prepared("insert_block", hash, height, timestamp, nonce, size, numTxs, blockOutputAccumulator);
             this->StoreTransactions(item, conn, insertBlockWork);
         }
         catch (const pqxx::sql_error &e)
         {
+            std::cout << e.what() << std::endl;
 
             if (e.sqlstate().find("duplicate key value violates unique constraint") != std::string::npos)
             {
             }
             else
             {
-                std::cout << e.what() << std::endl;
-                std::cout << e.sqlstate() << std::endl;
-                // this->AddMissedBlockToChunkCheckpoint(chunkStartHeight, chunkCurrentProcessingIndex);
             }
 
+            this->AddMissedBlock(item["height"].asLargestInt());
             shouldCommitBlock = false;
         }
         catch (const std::exception &e)
         {
             std::cout << e.what() << std::endl;
-            // this->AddMissedBlockToChunkCheckpoint(chunkStartHeight, chunkCurrentProcessingIndex);
+            this->AddMissedBlock(item["height"].asLargestInt());
             shouldCommitBlock = false;
         }
 
@@ -530,6 +462,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         }
         if (isTrackingCheckpointForChunk)
         {
+            std::cout << "Handling checkpoint tracking." << std::endl;
             // TODO: If the checkpont doesn't exist the update chunk checkpoint function shouldn't update it.. throw error
             auto now = std::chrono::steady_clock::now();
             auto elapsedTimeSinceLastCheckpoint = now - timeSinceLastCheckpoint;
@@ -538,9 +471,8 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
             if (checkpointExist)
             {
                 checkpoint = checkpointOpt.value();
-            }
 
-            if (elapsedTimeSinceLastCheckpoint >= std::chrono::seconds(5))
+                if (elapsedTimeSinceLastCheckpoint >= std::chrono::seconds(5))
             {
 
                 this->UpdateChunkCheckpoint(checkpointExist ? checkpoint.chunkStartHeight : chunkStartHeight, chunkCurrentProcessingIndex);
@@ -553,6 +485,8 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
                 this->UpdateChunkCheckpoint(checkpointExist ? checkpoint.chunkStartHeight : chunkStartHeight, chunkCurrentProcessingIndex);
                 break;
             }
+            }
+
         }
 
         ++chunkCurrentProcessingIndex;
@@ -577,68 +511,62 @@ bool Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
     std::string insert_transactions_prepare = curr_thread_id + "_insert_transactions";
     std::string insert_transparent_inputs_prepare = curr_thread_id + "_insert_transparent_inputs";
     std::string insert_transparent_outputs_prepare = curr_thread_id + "_insert_transparent_outputs";
-    std::string insert_joinsplits_prepare = curr_thread_id + "_insert_joinsplits";
 
     conn->prepare(insert_transactions_prepare,
                   R"(
         INSERT INTO transactions 
-        (txid, sender, public_output, fees, hash, timestamp, height)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (txid) 
+        (tx_id, public_output, hash, timestamp, height)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (tx_id) 
         DO NOTHING
         )");
 
     conn->prepare(insert_transparent_outputs_prepare,
                   R"(
                  INSERT INTO transparent_outputs 
-                 (recipients, amount, fees)
-                 VALUES ($1, $2, $3)
+                 (tx_id, output_index, recipients, value)
+                 VALUES ($1, $2, $3, $4)
               )");
 
     conn->prepare(insert_transparent_inputs_prepare,
                   R"(
                  INSERT INTO transparent_inputs 
-                 (txid, vin_tx_id, v_out_idx, sender, coinbase)
-                 VALUES ($1, $2, $3, $4, $5)
-                 ON CONFLICT (txid) 
+                 (tx_id, vin_tx_id, v_out_idx, coinbase)
+                 VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (tx_id) 
                  DO NOTHING
               )");
-
-    conn->prepare(insert_joinsplits_prepare,
-                  R"(
-                 INSERT INTO joinsplits 
-                 (txid, nullifiers, commitments, vpub_old, vpub_new, anchor, oneTimePubKey, randomSeed, proof)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                 ON CONFLICT (txid) 
-                 DO NOTHING
-              )");
-
-    std::string sender;
-    std::string txid;
-    std::string transactionData;
 
     // Save transactions
     if (block["tx"].size() > 0)
     {
         bool isCoinbaseTransaction = false;
+        std::string txid{""};
+        int version;
+        std::string prevBlockHash;
+        std::string nextBlockHash;
+        std::string merkleRoot;
+        int timestamp;
+        int difficulty;
+        std::string nonce;
+        std::string hash;
+        int height;
+        Json::Value transactions;
+
         for (const Json::Value &tx : block["tx"])
         {
             try
             {
-                if (!BlockValidator::ValidateTransaction(tx))
-                {
-                }
-
-                const int version = block["version"].asInt();
-                const std::string prevBlockHash = block["previousblockhash"].asString();
-                const std::string nextBlockHash = block["previousblockhash"].asString();
-                std::string merkleRoot = block["merkleroot"].asString();
-                const int timestamp = block["time"].asInt();
-                const int difficulty = block["difficulty"].asInt();
-                const std::string nonce = block["nonce"].asString();
-                const Json::Value transactions = block["tx"];
-                const std::string hash = block["hash"].asString();
-                const int height = block["height"].asLargestInt();
+                version = block["version"].asInt();
+                prevBlockHash = block["previousblockhash"].asString();
+                nextBlockHash = block["previousblockhash"].asString();
+                merkleRoot = block["merkleroot"].asString();
+                timestamp = block["time"].asInt();
+                difficulty = block["difficulty"].asInt();
+                std::string nonce = block["nonce"].asString();
+                Json::Value transactions = block["tx"];
+                std::string hash = block["hash"].asString();
+                height = block["height"].asLargestInt();
 
                 // Transaction id
                 txid = tx["txid"].asString();
@@ -647,8 +575,7 @@ bool Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                 if (tx["vin"].size() > 0)
                 {
                     std::string vin_tx_id;
-                    std::string v_out_idx;
-                    std::string sender{""};
+                    uint32_t v_out_idx;
                     std::string coinbase{""};
 
                     for (const Json::Value &input : tx["vin"])
@@ -656,190 +583,92 @@ bool Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                         try
                         {
                             // Check if input is a coinbase tx
-                            if (!input["coinbase"].isNull())
+                            if (input.isMember("coinbase"))
                             {
                                 isCoinbaseTransaction = true;
                                 coinbase = input["coinbase"].asString();
                                 vin_tx_id = "-1";
-                                v_out_idx = "-1";
-                                sender = "0x";
+                                v_out_idx = 0; // TODO: Find a better way to represent v_out_idx for coinbase transactions.
                             }
                             else
                             {
                                 coinbase = "-1";
                                 vin_tx_id = input["txid"].asString();
-                                v_out_idx = input["vout"].asString();
-
-                                std::string scriptSigAsm = "";  // input["scriptSig"]["asm"].asString();
-                                std::string asmScriptType = ""; // this->identifyAsmScriptType(scriptSigAsm);
-
-                                std::pair<std::string, std::string> signatureAndPublicKey;
-
-                                // TODO: Handle default case and script types
-                                if (asmScriptType == "P2PKH")
-                                {
-                                    // signatureAndPublicKey = parseP2PKHScript(input["scriptSig"]["asm"].asString());
-                                    // sender = this->extractAddressFromPubKey(signatureAndPublicKey.second());
-                                }
-                                else if (asmScriptType == "P2PK")
-                                {
-                                    // signatureAndPublicKey = parseP2PKHScript(input["scriptSig"]["asm"].asString());
-                                    // sender = this->extractAddressFromPubKey(signatureAndPublicKey.second());
-                                }
-                                else
-                                {
-                                    //  throw std::runtime_error("Unsupported or Unknown ASM Script type.");
-                                }
-
-                                sender = "0x"; // Temp
+                                v_out_idx = input["vout"].asInt();
                             }
 
-                            blockTransaction.exec_prepared(insert_transparent_inputs_prepare, txid, vin_tx_id, v_out_idx, sender, coinbase);
+                            blockTransaction.exec_prepared(insert_transparent_inputs_prepare, txid, vin_tx_id, v_out_idx, coinbase);
                         }
                         catch (const pqxx::sql_error &e)
                         {
                             std::cout << e.what() << std::endl;
-                            std::cout << e.sqlstate() << std::endl;
-                            std::cout << "Attempted to store input" << std::endl;
                             throw;
                         }
                         catch (const std::exception &e)
                         {
-                            // Handle other exceptions here
                             std::cout << e.what() << std::endl;
                             throw;
                         }
                     }
                 }
 
-                size_t amount{0};
-                size_t fees{0};
+                double currentOutputValue{0};
+                double totalTransactionOutput{0};
 
                 // Transaction outputs
                 if (tx["vout"].size() > 0)
                 {
-                    std::string recipients;
+
+                    size_t outputIndex{0};
+                    std::vector<std::string> recipients;
                     for (const Json::Value &vOutEntry : tx["vout"])
                     {
-                        // TODO: Fix
-                        // Value is not convertible to Int.
-                        // amount = vOutEntry["value"].asInt()
-                        // fees = amount - vOutEntry.asInt();
+                        outputIndex = vOutEntry["n"].asLargestInt();
+                        currentOutputValue = vOutEntry["value"].asDouble();
+                        totalTransactionOutput += currentOutputValue;
 
                         try
                         {
                             Json::Value vOutAddresses = vOutEntry["scriptPubKey"]["addresses"];
-                            if (vOutAddresses.isArray())
+                            std::string recipientList = "{";
+                            if (vOutAddresses.isArray() && vOutAddresses.size() > 0)
                             {
                                 for (const Json::Value &vOutAddress : vOutAddresses)
                                 {
-                                    recipients += vOutAddress.asString() + ","; // join
+                                    recipients.push_back(vOutAddress.asString());
                                 }
 
-                                // Remove the trailing comma from the recipients list
-                                if (!recipients.empty())
-                                {
-                                    recipients.pop_back();
+                                
+                                if (!recipients.empty()) {
+                                    recipientList += "\"" + recipients[0] + "\"";
+                                    for (size_t i = 1; i < recipients.size(); ++i) {
+                                        recipientList += ",\"" + recipients[i] + "\"";
+                                    }
                                 }
+                                
+
                             }
-                            blockTransaction.exec_prepared(insert_transparent_outputs_prepare, recipients, amount, fees);
+                            recipientList += "}";
+                            blockTransaction.exec_prepared(insert_transparent_outputs_prepare, txid, outputIndex, recipientList, currentOutputValue);
                         }
                         catch (const pqxx::sql_error &e)
                         {
-                            // Handle SQL errors here
                             std::cout << e.what() << std::endl;
-                            std::cout << e.sqlstate() << std::endl;
                             throw;
                         }
                         catch (const std::exception &e)
                         {
-                            // Handle other exceptions here
                             std::cout << e.what() << std::endl;
                             throw;
                         }
                     }
                 }
 
-                std::string insertJoinsplitsStmt;
-                std::vector<std::string> nullifierVec;
-                std::vector<std::string> commitmentsVec;
-                std::string nullifiers;
-                std::string commitments;
-                std::string vpub_old;
-                std::string vpub_new;
-                std::string anchor;
-                std::string oneTimePubKey;
-                std::string randomSeed;
-                std::string proof;
-
-                // Transaction joinsplits
-                if (tx["vjoinsplit"].isArray() && tx["vjoinsplit"].size() > 0)
-                {
-                    for (const Json::Value &joinsplitEntry : tx["vjoinsplit"])
-                    {
-                        try
-                        {
-                            if (joinsplitEntry["nullifiers"].isArray())
-                            {
-                                for (const Json::Value &nullifier : joinsplitEntry["nullifiers"])
-                                {
-                                    if (nullifier.isString())
-                                    {
-                                        nullifierVec.push_back(nullifier.asString());
-                                    }
-                                }
-                            }
-
-                            std::stringstream nullifiersStream;
-                            copy(nullifierVec.begin(), nullifierVec.end(), std::ostream_iterator<std::string>(nullifiersStream, _delimiter));
-                            nullifiers = nullifiersStream.str();
-
-                            if (joinsplitEntry["commitments"].isArray())
-                            {
-                                for (const Json::Value &commitment : joinsplitEntry["commitments"])
-                                {
-                                    if (commitment.isString())
-                                    {
-                                        commitmentsVec.push_back(commitment.asString());
-                                    }
-                                }
-                            }
-
-                            std::ostringstream commitmentsStream;
-                            std::copy(commitmentsVec.begin(), commitmentsVec.end(), std::ostream_iterator<std::string>(commitmentsStream, _delimiter));
-
-                            vpub_old = joinsplitEntry["vpub_old"].asString();
-                            vpub_new = joinsplitEntry["vpub_new"].asString();
-                            anchor = joinsplitEntry["anchor"].asString();
-                            oneTimePubKey = joinsplitEntry["oneTimePubKey"].asString();
-                            randomSeed = joinsplitEntry["randomSeed"].asString();
-                            proof = joinsplitEntry["proof"].asString();
-
-                            blockTransaction.exec_prepared(insert_joinsplits_prepare, txid, nullifiers, commitments, vpub_old, vpub_new, anchor, oneTimePubKey, randomSeed, proof);
-                        }
-                        catch (const pqxx::sql_error &e)
-                        {
-                            // Handle SQL errors here
-                            std::cout << e.what() << std::endl;
-                            std::cout << e.sqlstate() << std::endl;
-                            throw;
-                        }
-                        catch (const std::exception &e)
-                        {
-                            // Handle other exceptions here
-                            std::cout << e.what() << std::endl;
-                            throw;
-                        }
-                    }
-                }
-
-                blockTransaction.exec_prepared(insert_transactions_prepare, txid, sender, amount, fees, hash, timestamp, height);
+                blockTransaction.exec_prepared(insert_transactions_prepare, txid, currentOutputValue, hash, timestamp, height);
             }
             catch (const pqxx::sql_error &e)
             {
                 std::cout << e.what() << std::endl;
-                std::cout << e.sqlstate() << std::endl;
-                conn->unprepare(insert_joinsplits_prepare);
                 conn->unprepare(insert_transactions_prepare);
                 conn->unprepare(insert_transparent_inputs_prepare);
                 conn->unprepare(insert_transparent_outputs_prepare);
@@ -847,8 +676,6 @@ bool Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
             }
             catch (const std::exception &e)
             {
-                std::cout << e.what() << std::endl;
-                conn->unprepare(insert_joinsplits_prepare);
                 conn->unprepare(insert_transactions_prepare);
                 conn->unprepare(insert_transparent_inputs_prepare);
                 conn->unprepare(insert_transparent_outputs_prepare);
@@ -860,7 +687,6 @@ bool Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
         }
     }
 
-    conn->unprepare(insert_joinsplits_prepare);
     conn->unprepare(insert_transactions_prepare);
     conn->unprepare(insert_transparent_inputs_prepare);
     conn->unprepare(insert_transparent_outputs_prepare);
@@ -881,7 +707,7 @@ unsigned int Database::GetSyncedBlockCountFromDB()
         }
         else
         {
-           
+
             syncedBlockCount = 0;
         }
 
@@ -891,13 +717,11 @@ unsigned int Database::GetSyncedBlockCountFromDB()
     }
     catch (std::exception &e)
     {
-        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
         return 0;
     }
     catch (pqxx::unexpected_rows &e)
     {
-        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
         return 0;
     }

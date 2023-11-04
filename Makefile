@@ -29,7 +29,7 @@ LIBS = -ljsonrpccpp-common \
        -lpthread -ldl -lm
 
 # Source files
-CXX_SRCS = src/syncer.cpp src/controller.cpp src/database.cpp src/httpclient.cpp src/block.cpp
+CXX_SRCS = src/syncer.cpp src/controller.cpp src/database.cpp src/httpclient.cpp
 
 # Object files
 CXX_OBJS = $(CXX_SRCS:.cpp=.o)

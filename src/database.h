@@ -29,8 +29,9 @@ private:
     std::unique_ptr<pqxx::connection> GetConnection();
     void UpdateChunkCheckpoint(size_t chunkStartHeight, size_t checkpointUpdateValue);
     bool StoreTransactions(const Json::Value& block, const std::unique_ptr<pqxx::connection>& conn, pqxx::work &blockTransaction);
-    void AddMissedBlockToChunkCheckpoint(size_t chunkStartHeight, uint64_t blockHeight);
-    void RemoveMissedBlockFromChunkCheckpoint(size_t chunkStartHeight, uint64_t blockHeight);
+    void AddMissedBlock(size_t blockHeight);
+    void RemoveMissedBlock(size_t blockHeight);
+
 public:
 
     // TODO: Update variable name to better reflect purpose. chunkStartHeight -> rangeCheckpointStart
@@ -47,10 +48,10 @@ public:
     ~Database();
     bool CreateTables();
     bool Connect(size_t poolSize, const std::string& connection_string);
-    void StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, size_t chunkStartHeight, size_t chunkEndHeight, size_t lastCheckpoint = -1, size_t trueRangeStartHeight = -1);
+    void StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, signed int chunkStartHeight, signed int chunkEndHeight, signed int lastCheckpoint = -1, signed int trueRangeStartHeight = -1);
     void LoadAndProcessUnprocessedChunks();
     std::stack<Database::Checkpoint> GetUnfinishedCheckpoints();
-    std::optional<Database::Checkpoint> GetCheckpoint(size_t chunkStartHeight);
+    std::optional<Database::Checkpoint> GetCheckpoint(signed int chunkStartHeight);
     unsigned int GetSyncedBlockCountFromDB();
     void CreateCheckpointIfNonExistent(size_t chunkStartHeight, size_t chunkEndHeight);
 };

@@ -28,7 +28,7 @@ private:
     Syncer syncer;
 
 public:
-    Controller(InitConfig config);
+    Controller(const InitConfig &config);
     ~Controller();
     void InitAndSetup();
     void Shutdown();
