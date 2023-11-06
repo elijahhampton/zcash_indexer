@@ -7,7 +7,6 @@
 
 #include "database.h"
 #include "httpclient.h"
-#include "json/json.h"
 #include <iostream>
 #include <string>
 #include <optional>
@@ -22,6 +21,8 @@
 #include <boost/process.hpp>
 #include <fstream>
 #include <queue>
+
+#include <jsonrpccpp/common/jsonparser.h>
 
 class Syncer
 {

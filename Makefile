@@ -1,15 +1,16 @@
 # Compiler
-CXX = g++
+CXX = clang++
 
 # Compiler flags
 CXXFLAGS = -std=c++17 -Wall -Wextra -pedantic -g
 
-# Include directories
+# Adjust the order of include paths so that the correct version of jsoncpp is included first
+# If libjsonrpccpp brings its own version, you may need to specify that path instead of the general /usr/local/include/json
 INCLUDES = -I/usr/local/include \
            -I/usr/local/opt/openssl/include \
-           -I/usr/local/include/boost \
            -I/usr/local/include/jsonrpccpp \
-           -I/usr/local/include/json
+           -I/usr/local/include/json \
+           -I/usr/local/include/boost
 
 # Library directories
 LIBDIRS = -L/usr/local/lib \
@@ -45,7 +46,6 @@ $(TARGET): $(CXX_OBJS)
 .cpp.o:
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
-
 # Clean rule
 clean:
-	rm -f $(CXX_OBJS) $(C_OBJS) $(TARGET)
+	rm -f $(CXX_OBJS) $(TARGET)

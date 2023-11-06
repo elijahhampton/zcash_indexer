@@ -1,0 +1,60 @@
+version: '3.8'
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      zcashd:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASSWORD: mysecretpassword
+      RPC_URL: "http://zcashd:8232"
+      RPC_USERNAME: user
+      RPC_PASSWORD: password
+
+  db:
+    image: postgres:latest
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mysecretpassword
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Uncomment below to access PostgreSQL port from the host
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"]
+      #interval: 10s
+      #timeout: 5s
+      #retries: 5
+
+  zcashd:
+    build:
+      context: .
+      dockerfile: Dockerfile-zcashd
+    volumes:
+      - zcash_data:/root/.zcash
+      - zcash_params:/root/.zcash-params
+      - ./zcash-data-dir/zcash.conf:/root/.zcash/zcash.conf
+    ports:
+      - "8232:8232" # Expose RPC port if needed from outside the container
+     # - "18233:18233"
+    healthcheck:
+      test: ["CMD", "/zcash/src/zcash-cli", "getinfo"]
+      # interval: 30s
+      # timeout: 10s
+      # retries: 5
+
+volumes:
+  postgres_data:
+  zcash_data:
+  zcash_params:

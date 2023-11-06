@@ -3,7 +3,6 @@
 #include <iostream>
 #include "jsonrpccpp/client.h"
 #include "jsonrpccpp/client/connectors/httpclient.h"
-#include "json/json.h"
 
 CustomClient::CustomClient(const std::string &url, const std::string &username, const std::string &password)
     : httpClient(url), rpcClient(httpClient, jsonrpc::JSONRPC_CLIENT_V1)
@@ -14,6 +13,17 @@ CustomClient::CustomClient(const std::string &url, const std::string &username, 
 
     std::string authHeader = "Basic " + base64Encode(username + ":" + password);
     httpClient.AddHeader("Authorization", authHeader);
+    this->setInfo(url, username, password);
+}
+
+void CustomClient::getInfo() {
+    std::cout << this->url << " .... " << this->username << " ..... " << this->password << std::endl;
+}
+
+void CustomClient::setInfo(std::string url, std::string username, std::string password) {
+    this->url = url;
+    this->username = username;
+    this->password = password;
 }
 
 CustomClient::~CustomClient() {

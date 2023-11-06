@@ -1,7 +1,7 @@
 #include <memory>
 #include <pqxx/pqxx>
 #include <queue>
-#include "json/json.h"
+//#include "json/json.h"
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -13,9 +13,10 @@
 #include <map>
 #include <thread>
 #include <fstream>
-
 #include <vector>
 #include <queue>
+
+#include <jsonrpccpp/common/jsonparser.h>
 
 class Database {
 private:

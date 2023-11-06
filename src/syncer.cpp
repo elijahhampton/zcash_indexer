@@ -1,7 +1,6 @@
 #include "syncer.h"
 #include <algorithm>
 #include "httpclient.h"
-#include "json/json.h"
 #include <iostream>
 #include <string>
 #include <optional>
@@ -304,8 +303,9 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
 
     while (i < heightsToDownload.size())
     {
-        getblockParams.append(std::to_string(heightsToDownload.at(i)));
-        getblockParams.append(2);
+        getblockParams.append(Json::Value(std::to_string(heightsToDownload.at(i))));
+        getblockParams.append(Json::Value(2));
+        
 
         try
         {
@@ -338,7 +338,6 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
 
 void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t startRange, uint64_t endRange)
 {
-
     std::cout << "Downloading blocks starting at " << startRange << " and ending at " << endRange << std::endl;
     Json::Value getblockParams;
     Json::Value blockResultSerialized;
@@ -350,8 +349,8 @@ void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t s
         {
             std::cout << "Finishing" << std::endl;
         }
-        getblockParams.append(std::to_string(startRange));
-        getblockParams.append(2);
+        getblockParams.append(Json::Value(std::to_string(startRange)));
+        getblockParams.append(Json::Value(2));
 
         try
         {
@@ -381,22 +380,29 @@ void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t s
 
 void Syncer::LoadSyncedBlockCountFromDB()
 {
+    std::cout << "LoadSyncedBlockCountFromDB()" << std::endl;
     this->latestBlockSynced = this->database.GetSyncedBlockCountFromDB();
+    std::cout << "Latest block synced: " << this->latestBlockSynced << std::endl;
 }
 
 void Syncer::LoadTotalBlockCountFromChain()
 {
+    std::cout << "LoadTotalBlockCountFromChain()" << std::endl;
     try
     {
         std::lock_guard<std::mutex> lock(httpClientMutex);
-        Json::Value p;
-        p = Json::nullValue;
+        httpClient.getInfo();
+        Json::Value p = Json::nullValue;
         Json::Value response = httpClient.CallMethod("getblockcount", p);
         this->latestBlockCount = response.asLargestUInt();
+        std::cout << "Count is: " << this->latestBlockCount << std::endl;
     }
     catch (jsonrpc::JsonRpcException &e)
     {
         std::cout << e.what() << std::endl;
+        std::cout << e.GetCode() << std::endl;
+        std::cout << e.GetMessage() << std::endl;
+        std::cout << e.GetData().asString() << std::endl;
         if (std::string(e.what()).find("Loading block index") != std::string::npos)
         {
             while (std::string(e.what()).find("Loading block index") != std::string::npos)
