@@ -144,10 +144,9 @@ bool Database::CreateTables()
         for (const std::string &query : tableCreationQueries)
         {
             try {
-            std::cout << query << std::endl;
-            pqxx::work w(*conn.get());
-            w.exec(query);
-            w.commit();
+                pqxx::work w(*conn.get());
+                w.exec(query);
+                w.commit();
             } catch(const pqxx::sql_error &e) {
                 if (e.sqlstate() == "42P07") {
                     std::cerr << "Table already exists: " << e.what() << std::endl;
@@ -676,6 +675,7 @@ bool Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
             }
             catch (const std::exception &e)
             {
+                 std::cout << e.what() << std::endl;
                 conn->unprepare(insert_transactions_prepare);
                 conn->unprepare(insert_transparent_inputs_prepare);
                 conn->unprepare(insert_transparent_outputs_prepare);
@@ -707,7 +707,6 @@ unsigned int Database::GetSyncedBlockCountFromDB()
         }
         else
         {
-
             syncedBlockCount = 0;
         }
 

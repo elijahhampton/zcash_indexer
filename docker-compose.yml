@@ -1,58 +1,61 @@
 version: '3.8'
+
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
+    user: root
+    cap_add:
+      - NET_ADMIN
     depends_on:
       db:
         condition: service_healthy
-      zcashd:
-        condition: service_healthy
+     # zcash_zcashd:
+     #   condition: service_healthy
     environment:
       DB_HOST: db
       DB_PORT: "5432"
       DB_NAME: postgres
       DB_USER: postgres
       DB_PASSWORD: mysecretpassword
-      RPC_URL: "http://zcashd:8232"
+      RPC_URL: http://zcash_zcashd:8232
       RPC_USERNAME: user
       RPC_PASSWORD: password
 
   db:
     image: postgres:latest
     environment:
-      POSTGRES_HOST: db
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: mysecretpassword
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # Uncomment below to access PostgreSQL port from the host
     ports:
       - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"]
-      #interval: 10s
-      #timeout: 5s
-      #retries: 5
 
-  zcashd:
-    build:
-      context: .
-      dockerfile: Dockerfile-zcashd
+  zcash_zcashd:
+    image: electriccoinco/zcashd
+    user: root
     volumes:
-      - zcash_data:/root/.zcash
-      - zcash_params:/root/.zcash-params
+      - ./zcash-data-dir:/srv/zcashd/.zcash
+      - ./zcash-params-dir:/srv/zcashd/.zcash-params
       - ./zcash-data-dir/zcash.conf:/root/.zcash/zcash.conf
+    environment:
+      ZCASHD_NETWORK: "mainnet" # or "testnet"
+      ZCASHD_RPCPASSWORD: "password"
+      ZCASHD_RPCUSER: "user"
+      ZCASHD_ALLOWIP: "0.0.0.0/0"
     ports:
-      - "8232:8232" # Expose RPC port if needed from outside the container
-     # - "18233:18233"
-    healthcheck:
-      test: ["CMD", "/zcash/src/zcash-cli", "getinfo"]
-      # interval: 30s
-      # timeout: 10s
-      # retries: 5
+      - "8232:8232"
+      - "8233:8233"
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+   # healthcheck:
+   #   test: ["CMD", "/srv/zcashd/zcash-cli", "getinfo"]
 
 volumes:
   postgres_data:

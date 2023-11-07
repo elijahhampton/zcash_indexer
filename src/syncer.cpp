@@ -393,7 +393,7 @@ void Syncer::LoadTotalBlockCountFromChain()
         std::lock_guard<std::mutex> lock(httpClientMutex);
         httpClient.getInfo();
         Json::Value p = Json::nullValue;
-        Json::Value response = httpClient.CallMethod("getblockcount", p);
+        Json::Value response = httpClient.getblockcount();
         this->latestBlockCount = response.asLargestUInt();
         std::cout << "Count is: " << this->latestBlockCount << std::endl;
     }

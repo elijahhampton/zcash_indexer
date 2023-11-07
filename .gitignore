@@ -10,4 +10,6 @@ zcash.conf
 *.yaml
 scripts
 launch.json
+zcash-data-dir
+zcash-params-dir
 .vscode

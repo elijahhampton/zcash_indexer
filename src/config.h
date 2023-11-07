@@ -20,7 +20,7 @@ public:
     }
 
     static std::string getDatabaseHost() {
-        return getEnv("DB_HOST");
+        return getEnv("DB_HOST", "localhost");
     }
 
     static std::string getDatabasePort() {
@@ -28,27 +28,27 @@ public:
     }
 
     static std::string getDatabaseName() {
-        return getEnv("DB_NAME");
+        return getEnv("DB_NAME", "postgres");
     }
 
     static std::string getDatabaseUser() {
-        return getEnv("DB_USER");
+        return getEnv("DB_USER", "postgres");
     }
 
     static std::string getDatabasePassword() {
-        return getEnv("DB_PASSWORD");
+        return getEnv("DB_PASSWORD", "mysecretpassword");
     }
 
     static std::string getRpcUrl() {
-        return getEnv("RPC_URL");
+        return getEnv("RPC_URL", "8232");
     }
 
     static std::string getRpcUsername() {
-        return getEnv("RPC_USERNAME");
+        return getEnv("RPC_USERNAME", "user");
     }
 
     static std::string getRpcPassword() {
-        return getEnv("RPC_PASSWORD");
+        return getEnv("RPC_PASSWORD", "password");
     }
 
     // Add other getters for additional configuration as needed...
