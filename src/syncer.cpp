@@ -306,7 +306,6 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
         getblockParams.append(Json::Value(std::to_string(heightsToDownload.at(i))));
         getblockParams.append(Json::Value(2));
         
-
         try
         {
             blockResultSerialized = httpClient.CallMethod("getblock", getblockParams);

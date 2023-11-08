@@ -11,8 +11,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-     # zcash_zcashd:
-     #   condition: service_healthy
     environment:
       DB_HOST: db
       DB_PORT: "5432"
@@ -25,6 +23,7 @@ services:
 
   db:
     image: postgres:latest
+    user: root
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres
@@ -54,8 +53,21 @@ services:
     cap_add:
       - NET_ADMIN
     privileged: true
-   # healthcheck:
-   #   test: ["CMD", "/srv/zcashd/zcash-cli", "getinfo"]
+  api:
+    user: root
+    build:
+      context: ../block_explorer_api/  # The directory where the API's Dockerfile is located
+      dockerfile: Dockerfile  # Assuming the Dockerfile's name is 'Dockerfile'
+    ports:
+      - "8000:8000"  
+    depends_on:
+      - db  
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=postgres 
+      - DB_USER=postgres 
+      - DB_PASSWORD=mysecretpassword
 
 volumes:
   postgres_data:
