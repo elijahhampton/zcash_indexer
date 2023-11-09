@@ -27,6 +27,7 @@ bool Database::Connect(size_t poolSize, const std::string &conn_str)
     }
     catch (std::exception &e)
     {
+        std::cout << e.what() << std::endl;
         return false;
     }
     return false;
@@ -68,7 +69,7 @@ void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn)
         if (conn == nullptr || !conn->is_open())
         {
             // Optionally handle invalid connection here
-            std::cout << "ReleaseConnection: Invalid connection. Connection is null or not open." << std::endl;
+             "ReleaseConnection: Invalid connection. Connection is null or not open." << std::endl;
             return;
         }
 
@@ -152,6 +153,7 @@ bool Database::CreateTables()
                     std::cerr << "Table already exists: " << e.what() << std::endl;
                     continue;
                 } else {
+                    std::cout << "A@@@" << std::endl;
                     throw;
                 }
             }
@@ -428,9 +430,8 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
                     blockOutputAccumulator += voutItem["value"].asDouble();
                 }
             }
-            
-            std::cout << "Inserting block" << std::endl;
-            insertBlockWork.exec_prepared("insert_block", hash, height, timestamp, nonce, size, numTxs, blockOutputAccumulator);
+ 
+           // insertBlockWork.exec_prepared("insert_block", hash, height, timestamp, nonce, size, numTxs, blockOutputAccumulator);
             this->StoreTransactions(item, conn, insertBlockWork);
         }
         catch (const pqxx::sql_error &e)
@@ -457,6 +458,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         // Commit the block before taking a checkpoint
         if (shouldCommitBlock)
         {
+
             insertBlockWork.commit();
         }
         if (isTrackingCheckpointForChunk)
@@ -496,7 +498,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
     this->ReleaseConnection(std::move(conn));
 }
 
-bool Database::StoreTransactions(const Json::Value &block, const std::unique_ptr<pqxx::connection> &conn, pqxx::work &blockTransaction)
+void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr<pqxx::connection> &conn, pqxx::work &blockTransaction)
 {
     if (!block["tx"].isArray())
     {
@@ -536,6 +538,7 @@ bool Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                  DO NOTHING
               )");
 
+    std::cout << "StoreTransactions: " << block["tx"].size() << std::endl;
     // Save transactions
     if (block["tx"].size() > 0)
     {
@@ -552,6 +555,7 @@ bool Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
         int height;
         Json::Value transactions;
 
+        std::cout << "Starting transactions" << std::endl;
         for (const Json::Value &tx : block["tx"])
         {
             try
@@ -567,6 +571,7 @@ bool Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                 std::string hash = block["hash"].asString();
                 height = block["height"].asLargestInt();
 
+                std::cout << txid << std::endl;
                 // Transaction id
                 txid = tx["txid"].asString();
 
@@ -617,7 +622,6 @@ bool Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                 // Transaction outputs
                 if (tx["vout"].size() > 0)
                 {
-
                     size_t outputIndex{0};
                     std::vector<std::string> recipients;
                     for (const Json::Value &vOutEntry : tx["vout"])
@@ -687,9 +691,11 @@ bool Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
         }
     }
 
+    std::cout << "d" << std::endl;
     conn->unprepare(insert_transactions_prepare);
     conn->unprepare(insert_transparent_inputs_prepare);
     conn->unprepare(insert_transparent_outputs_prepare);
+    std::cout << "o" << std::endl;
 }
 
 unsigned int Database::GetSyncedBlockCountFromDB()
@@ -715,12 +721,14 @@ unsigned int Database::GetSyncedBlockCountFromDB()
         return syncedBlockCount;
     }
     catch (std::exception &e)
-    {
+    {                
+        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
         return 0;
     }
     catch (pqxx::unexpected_rows &e)
     {
+        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
         return 0;
     }

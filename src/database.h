@@ -28,7 +28,7 @@ private:
     void ReleaseConnection(std::unique_ptr<pqxx::connection> conn);
     std::unique_ptr<pqxx::connection> GetConnection();
     void UpdateChunkCheckpoint(size_t chunkStartHeight, size_t checkpointUpdateValue);
-    bool StoreTransactions(const Json::Value& block, const std::unique_ptr<pqxx::connection>& conn, pqxx::work &blockTransaction);
+    void StoreTransactions(const Json::Value& block, const std::unique_ptr<pqxx::connection>& conn, pqxx::work &blockTransaction);
     void AddMissedBlock(size_t blockHeight);
     void RemoveMissedBlock(size_t blockHeight);
 

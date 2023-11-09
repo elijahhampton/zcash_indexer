@@ -301,8 +301,12 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
     std::lock_guard<std::mutex> lock(httpClientMutex);
     size_t i{0};
 
+    std::cout << "Size of heights to download: " << std::endl;
     while (i < heightsToDownload.size())
     {
+        std::cout << "HEIGHTS TO DOWNLOAD: " << heightsToDownload.at(i) << std::endl;
+
+        
         getblockParams.append(Json::Value(std::to_string(heightsToDownload.at(i))));
         getblockParams.append(Json::Value(2));
         
@@ -322,12 +326,18 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
         }
         catch (jsonrpc::JsonRpcException &e)
         {
+            std::cout << "Block height: " << i << std::endl;
+            std::cout << e.what() << std::endl;
             ++i;
+            getblockParams.clear();
             continue;
         }
         catch (std::exception &e)
         {
+            std::cout << "Block height: " << i << std::endl;
+            std::cout << e.what() << std::endl;
             ++i;
+                        getblockParams.clear();
             continue;
         }
 
@@ -344,10 +354,6 @@ void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t s
     std::lock_guard<std::mutex> lock(httpClientMutex);
     while (startRange <= endRange)
     {
-        if (startRange + 20 == endRange)
-        {
-            std::cout << "Finishing" << std::endl;
-        }
         getblockParams.append(Json::Value(std::to_string(startRange)));
         getblockParams.append(Json::Value(2));
 
@@ -364,10 +370,12 @@ void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t s
         }
         catch (jsonrpc::JsonRpcException &e)
         {
+            std::cout << e.what() << std::endl;
             downloadBlocks.push_back(Json::nullValue);
         }
         catch (std::exception &e)
         {
+            std::cout << e.what() << std::endl;
             downloadBlocks.push_back(Json::nullValue);
         }
 
