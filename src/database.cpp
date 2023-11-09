@@ -69,7 +69,7 @@ void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn)
         if (conn == nullptr || !conn->is_open())
         {
             // Optionally handle invalid connection here
-             "ReleaseConnection: Invalid connection. Connection is null or not open." << std::endl;
+             std::cout << "ReleaseConnection: Invalid connection. Connection is null or not open." << std::endl;
             return;
         }
 
