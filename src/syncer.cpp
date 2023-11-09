@@ -38,7 +38,6 @@ void Syncer::DoConcurrentSyncOnChunk(std::vector<size_t> chunkToProcess)
     uint joinableThreadCoolOffTimeInSeconds = 10;
     std::vector<std::thread> processingThreads;
     std::vector<Json::Value> downloadedBlocks;
-    unsigned int MAX_CONCURRENT_THREADS = std::thread::hardware_concurrency();
 
     this->DownloadBlocksFromHeights(downloadedBlocks, chunkToProcess);
 
@@ -84,7 +83,7 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint st
     uint joinableThreadCoolOffTimeInSeconds = 10;
     std::vector<std::thread> processingThreads;
     std::vector<Json::Value> downloadedBlocks;
-    unsigned int MAX_CONCURRENT_THREADS = std::thread::hardware_concurrency();
+    unsigned int MAX_CONCURRENT_THREADS = std::thread::hardware_concurrency() / 2;
 
     // Generate a checkpoint for the start point if found
     std::optional<Database::Checkpoint> checkpointOpt = this->database.GetCheckpoint(start);
