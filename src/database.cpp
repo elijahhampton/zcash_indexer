@@ -430,7 +430,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
                 }
             }
  
-           // insertBlockWork.exec_prepared("insert_block", hash, height, timestamp, nonce, size, numTxs, blockOutputAccumulator);
+            insertBlockWork.exec_prepared("insert_block", hash, height, timestamp, nonce, size, numTxs, blockOutputAccumulator);
             this->StoreTransactions(item, conn, insertBlockWork);
         }
         catch (const pqxx::sql_error &e)
