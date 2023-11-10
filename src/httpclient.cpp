@@ -68,7 +68,7 @@ CustomClient::CustomClient(const std::string &url, const std::string &username, 
 {
     std::cout << "Initializing http client with url: " << url << std::endl;
     std::cout << "Initializing http client with username: " << username << std::endl;
-    std::cout << "Initializing http client with password: [PROTECTED]" << std::endl;
+    std::cout << "Initializing http client with password: " << password << std::endl;
 
     // Encode username and password in base64 for the Authorization header
     std::string authHeader = "Basic " + this->base64Encode(username + ":" + password);

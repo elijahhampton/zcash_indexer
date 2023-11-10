@@ -153,7 +153,6 @@ bool Database::CreateTables()
                     std::cerr << "Table already exists: " << e.what() << std::endl;
                     continue;
                 } else {
-                    std::cout << "A@@@" << std::endl;
                     throw;
                 }
             }
@@ -161,7 +160,7 @@ bool Database::CreateTables()
     }
     catch (const pqxx::sql_error &e)
     {
-        std::cout << e.what() << std::endl;
+         << e.what() << std::endl;
         std::cout << "SQL Error code: " << e.sqlstate() << std::endl;
         uint errCode = 0;
 
@@ -188,7 +187,7 @@ bool Database::CreateTables()
 
     this->ReleaseConnection(std::move(conn));
 
-    std::cout << "Successfully created tables.." << std::endl;
+     << "Successfully created tables.." << std::endl;
     return true;
 }
 
@@ -211,11 +210,11 @@ void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProc
             "WHERE chunk_start_height = $1;");
 
         transaction.exec_prepared("update_checkpoint", chunkStartHeight, currentProcessingChunkHeight);
-        std::cout << "Starting transaction commit" << std::endl;
+         << "Starting transaction commit" << std::endl;
         transaction.commit();
         std::cout << "Transaction committed" << std::endl;
 
-        std::cout << "Starting unprepare" << std::endl;
+         << "Starting unprepare" << std::endl;
         conn->unprepare("update_checkpoint");
         std::cout << "Unprepared" << std::endl;
 
@@ -350,7 +349,7 @@ std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints()
     }
     catch (const pqxx::sql_error &e)
     {
-        std::cout << e.what() << std::endl;
+         << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
     }
     catch (const std::exception &e)
@@ -458,7 +457,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         // Commit the block before taking a checkpoint
         if (shouldCommitBlock)
         {
-
+             << "Commiting block" << std::endl;
             insertBlockWork.commit();
         }
         if (isTrackingCheckpointForChunk)
@@ -538,7 +537,6 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                  DO NOTHING
               )");
 
-    std::cout << "StoreTransactions: " << block["tx"].size() << std::endl;
     // Save transactions
     if (block["tx"].size() > 0)
     {
@@ -555,7 +553,6 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
         int height;
         Json::Value transactions;
 
-        std::cout << "Starting transactions" << std::endl;
         for (const Json::Value &tx : block["tx"])
         {
             try
@@ -571,7 +568,6 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                 std::string hash = block["hash"].asString();
                 height = block["height"].asLargestInt();
 
-                std::cout << txid << std::endl;
                 // Transaction id
                 txid = tx["txid"].asString();
 
@@ -610,7 +606,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                         }
                         catch (const std::exception &e)
                         {
-                            std::cout << e.what() << std::endl;
+                             << e.what() << std::endl;
                             throw;
                         }
                     }
@@ -690,12 +686,10 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
             isCoinbaseTransaction = false;
         }
     }
-
-    std::cout << "d" << std::endl;
+    
     conn->unprepare(insert_transactions_prepare);
     conn->unprepare(insert_transparent_inputs_prepare);
     conn->unprepare(insert_transparent_outputs_prepare);
-    std::cout << "o" << std::endl;
 }
 
 unsigned int Database::GetSyncedBlockCountFromDB()
