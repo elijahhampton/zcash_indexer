@@ -437,12 +437,6 @@ bool Syncer::ShouldSyncWallet()
     this->LoadTotalBlockCountFromChain();
     this->LoadSyncedBlockCountFromDB();
 
-    // Allow the node to catch up in case of a reindex, corrupt db or other delay
-    if (this->latestBlockCount > this->latestBlockSynced)
-    {
-        return false;
-    }
-
     if (!this->isSyncing && (this->latestBlockSynced < this->latestBlockCount))
     {
         std::cout << "Sync required.." << std::endl;
