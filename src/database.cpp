@@ -160,7 +160,7 @@ bool Database::CreateTables()
     }
     catch (const pqxx::sql_error &e)
     {
-         << e.what() << std::endl;
+         std::cout << e.what() << std::endl;
         std::cout << "SQL Error code: " << e.sqlstate() << std::endl;
         uint errCode = 0;
 
@@ -187,7 +187,7 @@ bool Database::CreateTables()
 
     this->ReleaseConnection(std::move(conn));
 
-     << "Successfully created tables.." << std::endl;
+     std::cout << "Successfully created tables.." << std::endl;
     return true;
 }
 
@@ -210,11 +210,11 @@ void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProc
             "WHERE chunk_start_height = $1;");
 
         transaction.exec_prepared("update_checkpoint", chunkStartHeight, currentProcessingChunkHeight);
-         << "Starting transaction commit" << std::endl;
+        std::cout << "Starting transaction commit" << std::endl;
         transaction.commit();
         std::cout << "Transaction committed" << std::endl;
 
-         << "Starting unprepare" << std::endl;
+         std::cout << "Starting unprepare" << std::endl;
         conn->unprepare("update_checkpoint");
         std::cout << "Unprepared" << std::endl;
 
@@ -349,7 +349,7 @@ std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints()
     }
     catch (const pqxx::sql_error &e)
     {
-         << e.what() << std::endl;
+         std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
     }
     catch (const std::exception &e)
@@ -457,7 +457,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         // Commit the block before taking a checkpoint
         if (shouldCommitBlock)
         {
-             << "Commiting block" << std::endl;
+             std::cout << "Commiting block" << std::endl;
             insertBlockWork.commit();
         }
         if (isTrackingCheckpointForChunk)
@@ -472,7 +472,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
             {
                 checkpoint = checkpointOpt.value();
 
-                if (elapsedTimeSinceLastCheckpoint >= std::chrono::seconds(5))
+            if (elapsedTimeSinceLastCheckpoint >= std::chrono::seconds(5))
             {
 
                 this->UpdateChunkCheckpoint(checkpointExist ? checkpoint.chunkStartHeight : chunkStartHeight, chunkCurrentProcessingIndex);
@@ -606,7 +606,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                         }
                         catch (const std::exception &e)
                         {
-                             << e.what() << std::endl;
+                             std::cout << e.what() << std::endl;
                             throw;
                         }
                     }
