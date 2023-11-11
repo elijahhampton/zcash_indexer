@@ -411,7 +411,7 @@ void Syncer::LoadTotalBlockCountFromChain()
         std::cout << e.GetData().asString() << std::endl;
         if (std::string(e.what()).find("Loading block index") != std::string::npos)
         {
-            while (std::string(e.what()).find("Loading block index") != std::string::npos)
+            while (std::string(e.what()).find("Loading block index") != std::string::npos && std::string(e.what()).find("Verifying blocks") != std::string::npos)
             {
                 std::cout << "Loading block index." << std::endl;
             }

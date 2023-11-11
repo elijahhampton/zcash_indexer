@@ -51,7 +51,6 @@ public:
         return getEnv("RPC_PASSWORD", "password");
     }
 
-    // Add other getters for additional configuration as needed...
 };
 
 #endif // CONFIG_H
