@@ -15,7 +15,7 @@
 #include <fstream>
 #include <queue>
 
-size_t Syncer::CHUNK_SIZE = 10000;
+size_t Syncer::CHUNK_SIZE = 500;
 
 Syncer::Syncer(CustomClient &httpClientIn, Database &databaseIn) : httpClient(httpClientIn), database(databaseIn), latestBlockSynced{0}, latestBlockCount{0}, isSyncing{false}
 {
@@ -378,6 +378,7 @@ void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t s
             downloadBlocks.push_back(Json::nullValue);
         }
 
+        std::cout << "Finsihed block: " << startRange << std::endl;
         blockResultSerialized.clear();
         getblockParams.clear();
         startRange++;

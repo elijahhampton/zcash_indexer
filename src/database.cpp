@@ -69,7 +69,7 @@ void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn)
         if (conn == nullptr || !conn->is_open())
         {
             // Optionally handle invalid connection here
-             std::cout << "ReleaseConnection: Invalid connection. Connection is null or not open." << std::endl;
+            std::cout << "ReleaseConnection: Invalid connection. Connection is null or not open." << std::endl;
             return;
         }
 
@@ -86,7 +86,7 @@ void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn)
 
 void Database::ShutdownConnections()
 {
-   // TODO
+    // TODO
 }
 
 bool Database::CreateTables()
@@ -101,7 +101,13 @@ bool Database::CreateTables()
                                     "nonce TEXT,"
                                     "size INTEGER,"
                                     "num_transactions INTEGER,"
-                                    "output DOUBLE PRECISION"
+                                    "output DOUBLE PRECISION, "
+                                    "difficulty DOUBLE PRECISION, "
+                                    "chainwork TEXT, "
+                                    "merkle_root TEXT, "
+                                    "version INTEGER, "
+                                    "bits TEXT, "
+                                    "transaction_ids TEXT[]"
                                     ")";
 
     tableCreationQueries.push_back(createBlocksTable);
@@ -109,6 +115,11 @@ bool Database::CreateTables()
     std::string createTransactionsTable = "CREATE TABLE transactions ("
                                           "tx_id TEXT PRIMARY KEY, "
                                           "public_output TEXT, "
+                                          "size INTEGER, "
+                                          "is_overwintered BOOLEAN, "
+                                          "version INTEGER, "
+                                          "total_public_input INTEGER, "
+                                          "total_public_output INTEGER, "
                                           "hash TEXT, "
                                           "timestamp TEXT, "
                                           "height TEXT"
@@ -127,6 +138,8 @@ bool Database::CreateTables()
                                                    "tx_id TEXT PRIMARY KEY, "
                                                    "vin_tx_id TEXT, "
                                                    "v_out_idx INTEGER, "
+                                                   "value DOUBLE PRECISION, "
+                                                   "senders TEXT[], "
                                                    "coinbase TEXT);";
 
     tableCreationQueries.push_back(createTransparentInputsTableStmt);
@@ -144,15 +157,21 @@ bool Database::CreateTables()
     {
         for (const std::string &query : tableCreationQueries)
         {
-            try {
+            try
+            {
                 pqxx::work w(*conn.get());
                 w.exec(query);
                 w.commit();
-            } catch(const pqxx::sql_error &e) {
-                if (e.sqlstate() == "42P07") {
+            }
+            catch (const pqxx::sql_error &e)
+            {
+                if (e.sqlstate() == "42P07")
+                {
                     std::cerr << "Table already exists: " << e.what() << std::endl;
                     continue;
-                } else {
+                }
+                else
+                {
                     throw;
                 }
             }
@@ -160,7 +179,7 @@ bool Database::CreateTables()
     }
     catch (const pqxx::sql_error &e)
     {
-         std::cout << e.what() << std::endl;
+        std::cout << e.what() << std::endl;
         std::cout << "SQL Error code: " << e.sqlstate() << std::endl;
         uint errCode = 0;
 
@@ -187,7 +206,7 @@ bool Database::CreateTables()
 
     this->ReleaseConnection(std::move(conn));
 
-     std::cout << "Successfully created tables.." << std::endl;
+    std::cout << "Successfully created tables.." << std::endl;
     return true;
 }
 
@@ -214,7 +233,7 @@ void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProc
         transaction.commit();
         std::cout << "Transaction committed" << std::endl;
 
-         std::cout << "Starting unprepare" << std::endl;
+        std::cout << "Starting unprepare" << std::endl;
         conn->unprepare("update_checkpoint");
         std::cout << "Unprepared" << std::endl;
 
@@ -226,9 +245,10 @@ void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProc
     }
 }
 
-std::optional<Database::Checkpoint> Database::GetCheckpoint(signed int chunkStartHeight) 
+std::optional<Database::Checkpoint> Database::GetCheckpoint(signed int chunkStartHeight)
 {
-    if (chunkStartHeight == -1) {
+    if (chunkStartHeight == -1)
+    {
         return std::nullopt;
     }
 
@@ -349,7 +369,7 @@ std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints()
     }
     catch (const pqxx::sql_error &e)
     {
-         std::cout << e.what() << std::endl;
+        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
     }
     catch (const std::exception &e)
@@ -381,8 +401,8 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
 
     conn->prepare("insert_block",
-                  "INSERT INTO blocks (hash, height, timestamp, nonce, size, num_transactions, output) "
-                  "VALUES ($1, $2, $3, $4, $5, $6, $7) "
+                  "INSERT INTO blocks (hash, height, timestamp, nonce, size, num_transactions, output, difficulty, chainwork, merkle_root, version, bits, transaction_ids) "
+                  "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) "
                   "ON CONFLICT (hash) "
                   "DO NOTHING;");
 
@@ -411,7 +431,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
             const int version = item["version"].asInt();
             const std::string prevBlockHash = item["previousblockhash"].asString();
             const std::string nextBlockHash = item["nextblockhash"].asString();
-            std::string merkleRoot = item["merkleroot"].asString();
+            std::string merkle_root = item["merkleroot"].asString();
             const int timestamp = item["time"].asInt();
             const int difficulty = item["difficulty"].asInt();
             const Json::Value transactions = item["tx"];
@@ -419,18 +439,39 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
             const int height = item["height"].asLargestInt();
             const int size = item["size"].asInt();
             const int numTxs = item["tx"].size();
+            const std::string chainwork = item["chainwork"].asString();
+            const std::string bits = item["bits"].asString();
 
-            double blockOutputAccumulator = 0;
+            // Parse transaction ids into sql list representation
+            std::string transaction_ids_sql_representation = "{";
+            if (transactions.isArray() && transactions.size() > 0)
+            {
+                for (int i = 0; i < transactions.size(); ++i)
+                {
+                    if (transactions[i].isMember("txid") && transactions[i]["txid"].isString())
+                    {
+                        std::string txid = transactions[i]["txid"].asString();
+                        transaction_ids_sql_representation += "\"" + txid + "\"";
+                        if (i < transactions.size() - 1)
+                        {
+                            transaction_ids_sql_representation += ",";
+                        }
+                    }
+                }
+            }
+            transaction_ids_sql_representation += "}";
 
+            // Calculate block public output
+            double block_public_output = 0;
             for (const Json::Value tx : transactions)
             {
                 for (const Json::Value &voutItem : tx["vout"])
                 {
-                    blockOutputAccumulator += voutItem["value"].asDouble();
+                    block_public_output += voutItem["value"].asDouble();
                 }
             }
- 
-            insertBlockWork.exec_prepared("insert_block", hash, height, timestamp, nonce, size, numTxs, blockOutputAccumulator);
+
+            insertBlockWork.exec_prepared("insert_block", hash, height, timestamp, nonce, size, numTxs, block_public_output, difficulty, chainwork, merkle_root, version, bits, transaction_ids_sql_representation);
             this->StoreTransactions(item, conn, insertBlockWork);
         }
         catch (const pqxx::sql_error &e)
@@ -457,7 +498,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         // Commit the block before taking a checkpoint
         if (shouldCommitBlock)
         {
-             std::cout << "Commiting block" << std::endl;
+            std::cout << "Commiting block" << std::endl;
             insertBlockWork.commit();
         }
         if (isTrackingCheckpointForChunk)
@@ -472,21 +513,20 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
             {
                 checkpoint = checkpointOpt.value();
 
-            if (elapsedTimeSinceLastCheckpoint >= std::chrono::seconds(5))
-            {
+                if (elapsedTimeSinceLastCheckpoint >= std::chrono::seconds(5))
+                {
 
-                this->UpdateChunkCheckpoint(checkpointExist ? checkpoint.chunkStartHeight : chunkStartHeight, chunkCurrentProcessingIndex);
-                timeSinceLastCheckpoint = now;
-            }
+                    this->UpdateChunkCheckpoint(checkpointExist ? checkpoint.chunkStartHeight : chunkStartHeight, chunkCurrentProcessingIndex);
+                    timeSinceLastCheckpoint = now;
+                }
 
-            // Check one index before the end height to account for how the vector is indexed
-            if (chunkCurrentProcessingIndex == chunkEndHeight)
-            {
-                this->UpdateChunkCheckpoint(checkpointExist ? checkpoint.chunkStartHeight : chunkStartHeight, chunkCurrentProcessingIndex);
-                break;
+                // Check one index before the end height to account for how the vector is indexed
+                if (chunkCurrentProcessingIndex == chunkEndHeight)
+                {
+                    this->UpdateChunkCheckpoint(checkpointExist ? checkpoint.chunkStartHeight : chunkStartHeight, chunkCurrentProcessingIndex);
+                    break;
+                }
             }
-            }
-
         }
 
         ++chunkCurrentProcessingIndex;
@@ -515,8 +555,8 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
     conn->prepare(insert_transactions_prepare,
                   R"(
         INSERT INTO transactions 
-        (tx_id, public_output, hash, timestamp, height)
-        VALUES ($1, $2, $3, $4, $5)
+        (tx_id, public_output, size, is_overwintered, version, total_public_input, total_public_output, hash, timestamp, height)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ON CONFLICT (tx_id) 
         DO NOTHING
         )");
@@ -531,7 +571,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
     conn->prepare(insert_transparent_inputs_prepare,
                   R"(
                  INSERT INTO transparent_inputs 
-                 (tx_id, vin_tx_id, v_out_idx, coinbase)
+                 (tx_id, vin_tx_id, v_out_idx, value, senders, coinbase)
                  VALUES ($1, $2, $3, $4)
                  ON CONFLICT (tx_id) 
                  DO NOTHING
@@ -545,7 +585,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
         int version;
         std::string prevBlockHash;
         std::string nextBlockHash;
-        std::string merkleRoot;
+        std::string merkle_root;
         int timestamp;
         int difficulty;
         std::string nonce;
@@ -560,7 +600,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                 version = block["version"].asInt();
                 prevBlockHash = block["previousblockhash"].asString();
                 nextBlockHash = block["previousblockhash"].asString();
-                merkleRoot = block["merkleroot"].asString();
+                merkle_root = block["merkleroot"].asString();
                 timestamp = block["time"].asInt();
                 difficulty = block["difficulty"].asInt();
                 std::string nonce = block["nonce"].asString();
@@ -606,7 +646,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                         }
                         catch (const std::exception &e)
                         {
-                             std::cout << e.what() << std::endl;
+                            std::cout << e.what() << std::endl;
                             throw;
                         }
                     }
@@ -637,15 +677,14 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                                     recipients.push_back(vOutAddress.asString());
                                 }
 
-                                
-                                if (!recipients.empty()) {
+                                if (!recipients.empty())
+                                {
                                     recipientList += "\"" + recipients[0] + "\"";
-                                    for (size_t i = 1; i < recipients.size(); ++i) {
+                                    for (size_t i = 1; i < recipients.size(); ++i)
+                                    {
                                         recipientList += ",\"" + recipients[i] + "\"";
                                     }
                                 }
-                                
-
                             }
                             recipientList += "}";
                             blockTransaction.exec_prepared(insert_transparent_outputs_prepare, txid, outputIndex, recipientList, currentOutputValue);
@@ -675,7 +714,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
             }
             catch (const std::exception &e)
             {
-                 std::cout << e.what() << std::endl;
+                std::cout << e.what() << std::endl;
                 conn->unprepare(insert_transactions_prepare);
                 conn->unprepare(insert_transparent_inputs_prepare);
                 conn->unprepare(insert_transparent_outputs_prepare);
@@ -686,7 +725,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
             isCoinbaseTransaction = false;
         }
     }
-    
+
     conn->unprepare(insert_transactions_prepare);
     conn->unprepare(insert_transparent_inputs_prepare);
     conn->unprepare(insert_transparent_outputs_prepare);
@@ -715,7 +754,7 @@ unsigned int Database::GetSyncedBlockCountFromDB()
         return syncedBlockCount;
     }
     catch (std::exception &e)
-    {                
+    {
         std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
         return 0;
