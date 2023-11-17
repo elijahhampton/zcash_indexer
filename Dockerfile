@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     net-tools \
     libboost-filesystem-dev \
     libjsonrpccpp-dev \
+    libboost-serialization-dev \
     postgresql \
     postgresql-contrib \
     libjsonrpccpp-tools \

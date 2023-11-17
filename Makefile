@@ -20,6 +20,7 @@ LIBDIRS = -L/usr/local/lib \
 LIBS = -ljsonrpccpp-common \
        -ljsonrpccpp-client \
        -ljsonrpccpp-server \
+       -lboost_serialization \
        -ljsoncpp \
        -ljsonrpccpp-stub \
        -lpthread \

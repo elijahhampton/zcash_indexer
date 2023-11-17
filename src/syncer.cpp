@@ -91,6 +91,7 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint st
     Database::Checkpoint checkpoint;
     size_t chunkStartPoint{start};
     size_t chunkEndPoint; //{std::min(chunkStartPoint + Syncer::CHUNK_SIZE - 1, static_cast<size_t>(end))};
+    bool allowMultipleThreads{false};
     if (end - chunkStartPoint + 1 >= Syncer::CHUNK_SIZE)
     {
         chunkEndPoint = chunkStartPoint + Syncer::CHUNK_SIZE - 1;
@@ -129,7 +130,9 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint st
         // Create processable chunk
         std::vector<Json::Value> chunk(downloadedBlocks.begin(), downloadedBlocks.end());
 
-        // Max number of threads have been met
+        if (allowMultipleThreads) {
+
+                    // Max number of threads have been met
         while (processingThreads.size() >= MAX_CONCURRENT_THREADS)
         {
             bool isAtleastOneThreadJoined = false;
@@ -167,6 +170,10 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint st
             },
             isTrackingCheckpointForChunks, chunk, chunkStartPoint, chunkEndPoint,
             checkpointExist ? checkpoint.lastCheckpoint : 0, isExistingCheckpoint ? start : chunkStartPoint);
+
+        } else {
+            this->database.StoreChunk(isTrackingCheckpointForChunks, chunk, chunkStartPoint, chunkEndPoint, checkpointExist ? checkpoint.lastCheckpoint : 0, isExistingCheckpoint ? start : chunkStartPoint);
+        }
 
         // All blocks processed
         downloadedBlocks.clear();
@@ -302,10 +309,7 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
 
     std::cout << "Size of heights to download: " << std::endl;
     while (i < heightsToDownload.size())
-    {
-        std::cout << "HEIGHTS TO DOWNLOAD: " << heightsToDownload.at(i) << std::endl;
-
-        
+    { 
         getblockParams.append(Json::Value(std::to_string(heightsToDownload.at(i))));
         getblockParams.append(Json::Value(2));
         
@@ -378,7 +382,6 @@ void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t s
             downloadBlocks.push_back(Json::nullValue);
         }
 
-        std::cout << "Finsihed block: " << startRange << std::endl;
         blockResultSerialized.clear();
         getblockParams.clear();
         startRange++;
