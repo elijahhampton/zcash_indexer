@@ -2,6 +2,7 @@
 #include <fstream>
 #include <string>
 #include <iostream>
+#include <memory>
 #include <boost/serialization/nvp.hpp>
 #include <boost/multiprecision/cpp_dec_float.hpp>
 
@@ -19,6 +20,11 @@ Database::~Database()
 
 bool Database::Connect(size_t poolSize, const std::string &conn_str)
 {
+    if (this->is_connected) {
+        std::cerr << "Database is already connected. Exiting function Database::Connect()" << std::endl;
+        return false;
+    }
+
     try
     {
         for (size_t i = 0; i < poolSize; ++i)
@@ -27,13 +33,17 @@ bool Database::Connect(size_t poolSize, const std::string &conn_str)
             connectionPool.push(std::move(conn));
         }
 
+        this->is_connected = true;
+
         return true;
     }
     catch (std::exception &e)
     {
-        std::cout << e.what() << std::endl;
-        return false;
+        std::cerr << e.what() << std::endl;
+        this->is_connected = false;
+        throw std::runtime_error("Error occurred while creating connection pool. Database unable to connect.");
     }
+
     return false;
 }
 
@@ -85,6 +95,7 @@ void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn)
     catch (const std::exception &e)
     {
         std::cout << e.what() << std::endl;
+        throw std::runtime_error("Failed to release a database connection.");
     }
 }
 
@@ -93,73 +104,74 @@ void Database::ShutdownConnections()
     // TODO
 }
 
-bool Database::CreateTables()
+void Database::CreateTables()
 {
+    if (this->is_database_setup) {
+        std::cerr << "Database has already been setup in the current instance. Exiting function Database::CreateTables()" << std::endl;
+        return;
+    }
+
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
-    std::vector<std::string> tableCreationQueries;
 
-    std::string createBlocksTable = "CREATE TABLE blocks ("
-                                    "hash TEXT PRIMARY KEY, "
-                                    "height INTEGER, "
-                                    "timestamp INTEGER, "
-                                    "nonce TEXT,"
-                                    "size INTEGER,"
-                                    "num_transactions INTEGER,"
-                                    "output DOUBLE PRECISION, "
-                                    "difficulty DOUBLE PRECISION, "
-                                    "chainwork TEXT, "
-                                    "merkle_root TEXT, "
-                                    "version INTEGER, "
-                                    "bits TEXT, "
-                                    "transaction_ids TEXT[]"
-                                    ")";
+    // std::array of statements to create the required postgres tables
+    // Tables: blocks, transaction, checkpoints, transparent_inputs, transparent_outputs, peerinfo
+    std::array<std::string, 7> createTableStatements{"CREATE TABLE blocks ("
+                                                     "hash TEXT PRIMARY KEY, "
+                                                     "height INTEGER, "
+                                                     "timestamp INTEGER, "
+                                                     "nonce TEXT,"
+                                                     "size INTEGER,"
+                                                     "num_transactions INTEGER,"
+                                                     "total_block_output DOUBLE PRECISION, "
+                                                     "difficulty DOUBLE PRECISION, "
+                                                     "chainwork TEXT, "
+                                                     "merkle_root TEXT, "
+                                                     "version INTEGER, "
+                                                     "bits TEXT, "
+                                                     "transaction_ids TEXT[], "
+                                                     "num_outputs INTEGER, "
+                                                     "num_inputs INTEGER, "
+                                                     "total_block_input DOUBLE PRECISION, "
+                                                     "miner TEXT"
+                                                     ")",
+                                                     "CREATE TABLE transactions ("
+                                                     "tx_id TEXT PRIMARY KEY, "
+                                                     "size INTEGER, "
+                                                     "is_overwintered TEXT, "
+                                                     "version INTEGER, "
+                                                     "total_public_input TEXT, "
+                                                     "total_public_output TEXT, "
+                                                     "hex TEXT, "
+                                                     "hash TEXT, "
+                                                     "timestamp INTEGER, "
+                                                     "height TEXT, "
+                                                     "num_inputs INTEGER, "
+                                                     "num_outputs INTEGER"
+                                                     ")",
+                                                     "CREATE TABLE checkpoints ("
+                                                     "chunk_start_height INTEGER PRIMARY KEY,"
+                                                     "chunk_end_height INTEGER,"
+                                                     "last_checkpoint INTEGER"
+                                                     ")",
+                                                     "CREATE TABLE transparent_inputs ("
+                                                     "tx_id TEXT PRIMARY KEY, "
+                                                     "vin_tx_id TEXT, "
+                                                     "v_out_idx INTEGER, "
+                                                     "value DOUBLE PRECISION, "
+                                                     "senders TEXT[], "
+                                                     "coinbase TEXT)",
+                                                     "CREATE TABLE transparent_outputs ("
+                                                     "tx_id TEXT, "
+                                                     "output_index INTEGER, "
+                                                     "recipients TEXT[], "
+                                                     "value TEXT)",
+                                                     "CREATE TABLE peerinfo (addr TEXT, lastsend TEXT, lastrecv TEXT, conntime TEXT, subver TEXT, synced_blocks TEXT)", 
+                                                     "CREATE TABLE chain_info (orchard_pool_value DOUBLE PRECISION, best_block_hash TEXT, size_on_disk DOUBLE PRECISION, best_height INT, total_chain_value DOUBLE PRECISION)"};
 
-    tableCreationQueries.push_back(createBlocksTable);
-
-    std::string createTransactionsTable = "CREATE TABLE transactions ("
-                                          "tx_id TEXT PRIMARY KEY, "
-                                          "size INTEGER, "
-                                          "is_overwintered BOOLEAN, "
-                                          "version INTEGER, "
-                                          "total_public_input TEXT, "
-                                          "total_public_output TEXT, "
-                                          "hex TEXT, "
-                                          "hash TEXT, "
-                                          "timestamp TEXT, "
-                                          "height TEXT"
-                                          ")";
-
-    tableCreationQueries.push_back(createTransactionsTable);
-
-    std::string createChunkCheckpointTable = "CREATE TABLE checkpoints ("
-                                             "chunk_start_height INTEGER PRIMARY KEY,"
-                                             "chunk_end_height INTEGER,"
-                                             "last_checkpoint INTEGER"
-                                             ");";
-    tableCreationQueries.push_back(createChunkCheckpointTable);
-
-    std::string createTransparentInputsTableStmt = "CREATE TABLE transparent_inputs ("
-                                                   "tx_id TEXT PRIMARY KEY, "
-                                                   "vin_tx_id TEXT, "
-                                                   "v_out_idx INTEGER, "
-                                                   "value DOUBLE PRECISION, "
-                                                   "senders TEXT[], "
-                                                   "coinbase TEXT);";
-
-    tableCreationQueries.push_back(createTransparentInputsTableStmt);
-
-    std::string createTransparentOutputsTableStmt = "CREATE TABLE transparent_outputs ("
-                                                    "tx_id TEXT, "
-                                                    "output_index INTEGER, "
-                                                    "recipients TEXT[], "
-                                                    "value TEXT);";
-
-    tableCreationQueries.push_back(createTransparentOutputsTableStmt);
-
-    // TODO: batch inset
+    // TODO: Implement batch insertion
     try
     {
-        for (const std::string &query : tableCreationQueries)
+        for (const std::string &query : createTableStatements)
         {
             try
             {
@@ -169,6 +181,7 @@ bool Database::CreateTables()
             }
             catch (const pqxx::sql_error &e)
             {
+                std::cout << e.what() << std::endl;
                 if (e.sqlstate() == "42P07")
                 {
                     std::cerr << "Table already exists: " << e.what() << std::endl;
@@ -176,42 +189,28 @@ bool Database::CreateTables()
                 }
                 else
                 {
+                    this->is_database_setup = false;
                     throw;
                 }
             }
         }
+
+        this->ReleaseConnection(std::move(conn));
     }
     catch (const pqxx::sql_error &e)
     {
-        std::cout << e.what() << std::endl;
-        std::cout << "SQL Error code: " << e.sqlstate() << std::endl;
-        uint errCode = 0;
-
-        if (errCode != std::string::npos)
-        {
-            std::cerr << "Table already exists. Continuing execution." << std::endl;
-            this->ReleaseConnection(std::move(conn));
-            return false;
-        }
-        else
-        {
-            std::cerr << "SQL error: " << e.what() << std::endl;
-            std::cerr << "Query was: " << e.query() << std::endl;
-            this->ReleaseConnection(std::move(conn));
-            return false;
-        }
+                        std::cout << e.what() << std::endl;
+        this->ReleaseConnection(std::move(conn));
+        throw;
     }
     catch (const std::exception &e)
     {
-        std::cerr << "SQL error: " << e.what() << std::endl;
+                        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
-        return false;
+        throw;
     }
 
-    this->ReleaseConnection(std::move(conn));
-
     std::cout << "Successfully created tables.." << std::endl;
-    return true;
 }
 
 void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProcessingChunkHeight)
@@ -219,34 +218,29 @@ void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProc
     std::cout << "Updating check point: [" << chunkStartHeight << "," << currentProcessingChunkHeight << "]" << std::endl;
 
     // TODO: Check if checkpoint exist and throw a runtime error if it doesn't
+    std::unique_ptr<pqxx::connection> conn = this->GetConnection();
 
     try
     {
-        std::unique_ptr<pqxx::connection> conn = this->GetConnection();
-        std::cout << "UpdateChunkPoint:After connection is captured" << std::endl;
+
         pqxx::work transaction(*conn.get());
-        std::cout << "N" << std::endl;
+
         conn->prepare(
             "update_checkpoint",
             "UPDATE checkpoints "
             "SET last_checkpoint = $2 "
             "WHERE chunk_start_height = $1;");
 
-
         transaction.exec_prepared("update_checkpoint", chunkStartHeight, currentProcessingChunkHeight);
-        std::cout << "Starting transaction commit" << std::endl;
         transaction.commit();
-        std::cout << "Transaction committed" << std::endl;
 
-        std::cout << "Starting unprepare" << std::endl;
         conn->unprepare("update_checkpoint");
-        std::cout << "Unprepared" << std::endl;
-
         this->ReleaseConnection(std::move(conn));
     }
     catch (std::exception &e)
     {
         std::cout << e.what() << std::endl;
+        this->ReleaseConnection(std::move(conn));
     }
 }
 
@@ -399,25 +393,21 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
               << "ChunkEnd=" << chunkEndHeight << " "
               << "LastCheck=" << lastCheckpoint << " "
               << "TrueRange=" << trueRangeStartHeight << std::endl;
-    // size_t chunkCurrentProcessingIndex{lastCheckpoint == 0 ? chunkStartHeight : lastCheckpoint + 1};
+
     std::optional<Database::Checkpoint> checkpointOpt = this->GetCheckpoint(trueRangeStartHeight);
     bool checkpointExist = checkpointOpt.has_value();
-
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
 
     conn->prepare("insert_block",
-                  "INSERT INTO blocks (hash, height, timestamp, nonce, size, num_transactions, output, difficulty, chainwork, merkle_root, version, bits, transaction_ids) "
-                  "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) "
+                  "INSERT INTO blocks (hash, height, timestamp, nonce, size, num_transactions, total_block_output, difficulty, chainwork, merkle_root, version, bits, transaction_ids, num_outputs, num_inputs, total_block_input, miner) "
+                  "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) "
                   "ON CONFLICT (hash) "
                   "DO NOTHING;");
 
     pqxx::work insertBlockWork(*conn.get());
-
     bool shouldCommitBlock{true};
-
     auto timeSinceLastCheckpoint = std::chrono::steady_clock::now();
     size_t chunkCurrentProcessingIndex{static_cast<size_t>(chunkStartHeight)};
-
 
     for (const auto &item : chunk)
     {
@@ -448,12 +438,18 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
             const std::string chainwork = item["chainwork"].asString();
             const std::string bits = item["bits"].asString();
 
+            size_t num_outputs_in_block{0};
+            size_t num_inputs_in_block{0};
+
             // Parse transaction ids into sql list representation
             std::string transaction_ids_sql_representation = "{";
             if (transactions.isArray() && transactions.size() > 0)
             {
                 for (int i = 0; i < transactions.size(); ++i)
                 {
+                    num_outputs_in_block += transactions[i]["vout"].size();
+                    num_inputs_in_block += transactions[i]["vin"].size();
+
                     if (transactions[i].isMember("txid") && transactions[i]["txid"].isString())
                     {
                         std::string txid = transactions[i]["txid"].asString();
@@ -468,16 +464,42 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
             transaction_ids_sql_representation += "}";
 
             // Calculate block public output
-            double block_public_output = 0;
+            double total_block_public_output{0};
+            double total_block_public_input{0};
+            std::optional<pqxx::row> vin_transaction_look_buffer;
             for (const Json::Value tx : transactions)
             {
                 for (const Json::Value &voutItem : tx["vout"])
                 {
-                    block_public_output += voutItem["value"].asDouble();
+                    total_block_public_output += voutItem["value"].asDouble();
+                }
+
+                if (tx["vin"].size() == 1)
+                {
+                    total_block_public_input = 0;
+                }
+                else
+                {
+                    Json::Value output_specified_in_vin;
+                    for (const Json::Value &vinItem : tx["vin"])
+                    {
+                        vin_transaction_look_buffer = this->GetOutputByTransactionIdAndIndex(vinItem["txid"].asString(), static_cast<uint64_t>(vinItem["vout"].asInt()));
+                        if (vin_transaction_look_buffer.has_value())
+                        {
+                            pqxx::row output_specified_in_vin = vin_transaction_look_buffer.value();
+                            total_block_public_input += output_specified_in_vin["value"].as<double>();
+                        }
+                        else
+                        {
+                            total_block_public_input += 0;
+                        }
+
+                        output_specified_in_vin = 0;
+                    }
                 }
             }
 
-            insertBlockWork.exec_prepared("insert_block", hash, height, timestamp, nonce, size, numTxs, block_public_output, difficulty, chainwork, merkle_root, version, bits, transaction_ids_sql_representation);
+            insertBlockWork.exec_prepared("insert_block", hash, height, timestamp, nonce, size, numTxs, total_block_public_output, difficulty, chainwork, merkle_root, version, bits, transaction_ids_sql_representation, num_outputs_in_block, num_inputs_in_block, total_block_public_input, "");
             this->StoreTransactions(item, conn, insertBlockWork);
         }
         catch (const pqxx::sql_error &e)
@@ -545,39 +567,38 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
 
 std::optional<pqxx::row> Database::GetTransactionById(const std::string &txid)
 {
+    std::unique_ptr<pqxx::connection> conn = this->GetConnection();
+
+    pqxx::work tx(*conn.get());
+
+    pqxx::result result = tx.exec_params(
+        "SELECT * FROM transactions WHERE tx_id = $1", txid);
+
+    this->ReleaseConnection(std::move(conn));
+
+    if (!result.empty())
+    {
+        return result[0];
+    }
+
     return std::nullopt;
-    // std::unique_ptr<pqxx::connection> conn = this->GetConnection();
-
-    // pqxx::work tx(*conn.get());
-
-    // pqxx::result result = tx.exec_params(
-    //     "SELECT * FROM transactions WHERE tx_id = $1", txid);
-
-    // if (!result.empty())
-    // {
-    //     return result[0];
-    // }
-    // else
-    // {
-    //     return std::nullopt;
-    // }
 }
 
 std::optional<pqxx::row> Database::GetOutputByTransactionIdAndIndex(const std::string &txid, uint64_t v_out_index)
 {
+    std::unique_ptr<pqxx::connection> conn = this->GetConnection();
+    pqxx::work tx(*conn.get());
+
+    pqxx::result result = tx.exec_params("SELECT * FROM transparent_outputs WHERE tx_id = $1 AND output_index = $2", txid, v_out_index);
+
+    this->ReleaseConnection(std::move(conn));
+
+    if (!result.empty())
+    {
+        return result[0];
+    }
 
     return std::nullopt;
-    // std::unique_ptr<pqxx::connection> conn = this->GetConnection();
-
-    // pqxx::work tx(*conn.get());
-
-    // pqxx::result result = tx.exec_params("SELECT * FROM outputs WHERE tx_id = $1 AND output_index = $2", txid, v_out_index);
-
-    // if (!result.empty()) {
-    //     return result[0];
-    // }
-
-    // return std::nullopt;
 }
 
 void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr<pqxx::connection> &conn, pqxx::work &blockTransaction)
@@ -598,8 +619,8 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
     conn->prepare(insert_transactions_prepare,
                   R"(
         INSERT INTO transactions 
-        (tx_id, size, is_overwintered, version, total_public_input, total_public_output, hex, hash, timestamp, height)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        (tx_id, size, is_overwintered, version, total_public_input, total_public_output, hex, hash, timestamp, height, num_inputs, num_outputs)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         ON CONFLICT (tx_id) 
         DO NOTHING
         )");
@@ -637,9 +658,11 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
         Json::Value transactions;
         std::string size;
         std::string hex;
-        bool is_overwintered;
-        cpp_dec_float_50 total_public_output("0.0");
-        cpp_dec_float_50 total_public_input("0.0");
+        std::string is_overwintered{"false"};
+        double total_public_output{0.0};
+        double total_public_input{0.0};
+        uint32_t num_inputs_in_transaction{0};
+        uint32_t num_outputs_in_transaction{0};
 
         for (const Json::Value &tx : block["tx"])
         {
@@ -652,11 +675,14 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                 timestamp = block["time"].asInt();
                 difficulty = block["difficulty"].asInt();
                 std::string nonce = block["nonce"].asString();
-                Json::Value transactions = block["tx"];
+                Json::Value transactions = tx;
                 std::string hash = block["hash"].asString();
                 height = block["height"].asLargestInt();
-                size = block["size"].asString();
-                hex = block["hex"].asString();
+                size = tx["size"].asString();
+                hex = tx["hex"].asString();
+                is_overwintered = tx["overwintered"].asString();
+                num_inputs_in_transaction = tx["vin"].size();
+                num_outputs_in_transaction = tx["vout"].size();
 
                 // Transaction id
                 txid = tx["txid"].asString();
@@ -670,7 +696,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                     std::optional<pqxx::row> vin_transaction_look_buffer;
                     std::string senders{"{}"};
 
-                    cpp_dec_float_50 current_input_value;
+                    double current_input_value;
 
                     for (const Json::Value &input : tx["vin"])
                     {
@@ -686,7 +712,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                             }
                             else
                             {
-                                coinbase = "-1";
+                                coinbase = "";
                                 vin_tx_id = input["txid"].asString();
                                 v_out_idx = input["vout"].asInt();
 
@@ -695,13 +721,21 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                                 if (vin_transaction_look_buffer.has_value())
                                 {
                                     pqxx::row output_specified_in_vin = vin_transaction_look_buffer.value();
-                                    current_input_value = static_cast<cpp_dec_float_50>(output_specified_in_vin["value"].as<double>());
+                                    current_input_value = output_specified_in_vin["value"].as<double>();
+                                    std::cout << "Adding value: " << current_input_value << std::endl;
                                     total_public_input += current_input_value;
                                     senders = output_specified_in_vin["recipients"].as<std::string>();
                                 }
+                                else
+                                {
+                                    senders = "{}";
+                                    total_public_input += 0;
+                                    current_input_value += 0;
+                                }
                             }
 
-                            blockTransaction.exec_prepared(insert_transparent_inputs_prepare, txid, vin_tx_id, v_out_idx, current_input_value.str(), senders, coinbase);
+                            blockTransaction.exec_prepared(insert_transparent_inputs_prepare, txid, vin_tx_id, v_out_idx, current_input_value, senders, coinbase);
+                            senders = "{}";
                         }
                         catch (const pqxx::sql_error &e)
                         {
@@ -716,7 +750,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                     }
                 }
 
-                cpp_dec_float_50 currentOutputValue{"0.0"};
+                double currentOutputValue{0.0};
 
                 // Transaction outputs
                 if (tx["vout"].size() > 0)
@@ -725,9 +759,9 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                     std::vector<std::string> recipients;
                     for (const Json::Value &vOutEntry : tx["vout"])
                     {
-
                         outputIndex = vOutEntry["n"].asLargestInt();
-                        currentOutputValue = static_cast<cpp_dec_float_50>(vOutEntry["value"].asDouble());
+                        currentOutputValue = vOutEntry["value"].asDouble();
+                        std::cout << "Adding to total public output: " << currentOutputValue << std::endl;
                         total_public_output += currentOutputValue;
 
                         try
@@ -753,7 +787,8 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
 
                             recipientList += "}";
 
-                            blockTransaction.exec_prepared(insert_transparent_outputs_prepare, txid, outputIndex, recipientList, currentOutputValue.str());
+                            blockTransaction.exec_prepared(insert_transparent_outputs_prepare, txid, outputIndex, recipientList, currentOutputValue);
+                            recipients.clear();
                         }
                         catch (const pqxx::sql_error &e)
                         {
@@ -768,7 +803,10 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                     }
                 }
 
-                blockTransaction.exec_prepared(insert_transactions_prepare, txid, size, is_overwintered, version, total_public_input.str(), total_public_output.str(), hex, hash, timestamp, height);
+                blockTransaction.exec_prepared(insert_transactions_prepare, txid, size, is_overwintered, version, total_public_input, total_public_output, hex, hash, std::to_string(timestamp), height, num_inputs_in_transaction, num_outputs_in_transaction);
+
+                total_public_input = 0;
+                total_public_output = 0;
             }
             catch (const pqxx::sql_error &e)
             {
@@ -830,5 +868,83 @@ unsigned int Database::GetSyncedBlockCountFromDB()
         std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
         return 0;
+    }
+}
+
+void Database::StorePeers(const Json::Value &peer_info)
+{
+    std::unique_ptr<pqxx::connection> connection = this->GetConnection();
+    try
+    {
+
+        pqxx::work tx{*connection.get()};
+
+        // Clear existing peers
+        tx.exec("TRUNCATE TABLE peerinfo;");
+        tx.commit();
+
+        if (peer_info.isNull())
+        {
+            std::cout << "NULL" << std::endl;
+            this->ReleaseConnection(std::move(connection));
+            return;
+        }
+
+        connection->prepare("insert_peer_info", "INSERT INTO peerinfo (addr, lastsend, lastrecv, conntime, subver, synced_blocks) VALUES ($1, $2, $3, $4, $5, $6)");
+
+        if (peer_info.isArray() && peer_info.size() > 0)
+        {
+            for (const Json::Value &peer : peer_info)
+            {
+                std::cout << peer["addr"].asString() << std::endl;
+                tx.exec_prepared("insert_peer_info", peer["addr"].asString(), peer["lastsend"].asString(), peer["lastrecv"].asString(), peer["conntime"].asString(), peer["subver"].asString(), peer["synced_blocks"].asString());
+            }
+
+            tx.commit();
+        }
+
+        this->ReleaseConnection(std::move(connection));
+    }
+    catch (const std::exception &e)
+    {
+        std::cout << "Error encountered while storing updated peers." << e.what() << std::endl;
+        this->ReleaseConnection(std::move(connection));
+    }
+
+
+}
+
+void Database::StoreChainInfo(const Json::Value& chain_info)
+{
+    std::cout << chain_info.toStyledString() << std::endl;
+
+    if (!chain_info.isNull()) {
+        const char * insert_chain_info_query{"INSERT INTO chain_info (orchard_pool_value, best_block_hash, size_on_disk, best_height, total_chain_value) VALUES ($1, $2, $3, $4, $5)"};
+        auto conn = this->GetConnection();
+
+        double orchardPoolValue{0.0};
+        Json::Value valuePools = chain_info["valuePools"];
+        double totalChainValueAccumulator{0.0};
+        if (!valuePools.isNull()) {
+            for (const Json::Value& pool : valuePools)
+            {
+                if (pool["id"].asString() == "orchard")
+                {
+                    orchardPoolValue = pool["chainValue"].asDouble();
+                }
+
+                totalChainValueAccumulator += pool["chainValue"].asDouble();
+            }
+        }
+
+        try {
+            pqxx::work tx{*conn.get()};
+            tx.exec_params(insert_chain_info_query, orchardPoolValue, chain_info["bestblockhash"].asString(), chain_info["size_on_disk"].asDouble(), chain_info["estimatedheight"].asInt(), totalChainValueAccumulator);
+            tx.commit();
+            this->ReleaseConnection(std::move(conn));
+        } catch(const std::exception& e) {
+            std::cout << e.what() << std::endl;
+            this->ReleaseConnection(std::move(conn));
+        }
     }
 }

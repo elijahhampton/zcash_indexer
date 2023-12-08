@@ -51,6 +51,10 @@ public:
         return getEnv("RPC_PASSWORD", "password");
     }
 
+    static std::string getAllowMultipleThreads() {
+        return getEnv("ALLOW_MULTIPLE_THREADS", "false");
+    }
+
 };
 
 #endif // CONFIG_H

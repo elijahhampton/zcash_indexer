@@ -1,3 +1,10 @@
+GCR_HOST = gcr.io
+PROJECT_ID = be-infra
+REPO_NAME = be-api
+IMAGE_TAG = development
+
+IMAGE = $(GCR_HOST)/$(PROJECT_ID)/$(REPO_NAME):$(IMAGE_TAG)
+
 # Compiler
 CXX = clang++
 
@@ -50,3 +57,4 @@ $(TARGET): $(CXX_OBJS)
 # Clean rule
 clean:
 	rm -f $(CXX_OBJS) $(TARGET)
+

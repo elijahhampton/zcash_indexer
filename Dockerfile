@@ -35,5 +35,4 @@ COPY ./postgresql.conf /var/lib/postgresql/data/postgresql.conf
 
 RUN CXX=clang++ make clean && make
 
-#ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["./syncer", "-printtoconsole"]

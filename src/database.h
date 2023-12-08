@@ -1,9 +1,7 @@
 #include <memory>
 #include <pqxx/pqxx>
 #include <queue>
-#include <iostream>
 #include <sstream>
-#include <string>
 #include <mutex>
 #include <stack>
 #include <condition_variable>
@@ -11,18 +9,31 @@
 #include <stdexcept>
 #include <map>
 #include <thread>
+#include <chrono>
 #include <fstream>
-#include <vector>
 #include <queue>
-
 #include <jsonrpccpp/common/jsonparser.h>
+
+#include "httpclient.h"
+#include "controller.h"
+
+#ifndef DATABASE_H
+#define DATABASE_H
 
 class Database {
 
+friend class Controller;
+friend class Syncer;
+
 private:
+    static std::mutex databaseConnectionCloseMutex; // TODO: Move to private and convert controller into friend
+    static std::condition_variable databaseConnectionCloseCondition; // TODO: Move to private and convert controller into friend
     std::queue<std::unique_ptr<pqxx::connection>> connectionPool;
     std::mutex poolMutex;
     std::condition_variable poolCondition;
+
+    bool is_connected{false};
+    bool is_database_setup{false};
 
 /**
      * Shuts down all connections in the connection pool.
@@ -75,18 +86,7 @@ private:
      */
     bool isWhole();
 
-public:
-    /**
-     * Constructs the Database object.
-     */
-    Database();
-
-    /**
-     * Destructs the Database object and releases resources.
-     */
-    ~Database();
-
-    /**
+        /**
      * Establishes connections to the database.
      *
      * @param poolSize The number of connections to establish in the connection pool.
@@ -100,7 +100,7 @@ public:
      *
      * @return True if tables are successfully created, false otherwise.
      */
-    bool CreateTables();
+    void CreateTables();
 
     /**
      * Creates a checkpoint if it does not exist.
@@ -136,4 +136,37 @@ public:
      */
     void StoreTransactions(const Json::Value& block, const std::unique_ptr<pqxx::connection>& conn, pqxx::work &blockTransaction);
 
+    /**
+     * Stores connected peers to the peersinfo table.
+     * 
+     * @param peer_info JSON array containing information about connected peers.
+    */
+    void StorePeers(const Json::Value& peer_info);
+
+    void StoreChainInfo(const Json::Value& chain_info);
+    
+public:
+ struct Checkpoint {
+        size_t chunkStartHeight;
+        size_t chunkEndHeight;
+        size_t lastCheckpoint;
+    };
+
+    /**
+     * Constructs the Database object.
+     */
+    Database();
+
+    /**
+     * Destructs the Database object and releases resources.
+     */
+    ~Database();
+
+    unsigned int GetSyncedBlockCountFromDB();
+    std::optional<pqxx::row> GetTransactionById(const std::string& txid);
+    std::optional<pqxx::row> GetOutputByTransactionIdAndIndex(const std::string& txid, uint64_t v_out_index);
+    std::stack<Database::Checkpoint> GetUnfinishedCheckpoints();
+    std::optional<Database::Checkpoint> GetCheckpoint(signed int chunkStartHeight);
 };
+
+#endif // DATABASE_H

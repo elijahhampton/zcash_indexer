@@ -14,6 +14,7 @@
 #include <boost/process.hpp>
 #include <fstream>
 #include <queue>
+#include "config.h"
 
 size_t Syncer::CHUNK_SIZE = 500;
 
@@ -83,7 +84,7 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint st
     uint joinableThreadCoolOffTimeInSeconds = 10;
     std::vector<std::thread> processingThreads;
     std::vector<Json::Value> downloadedBlocks;
-    unsigned int MAX_CONCURRENT_THREADS = std::thread::hardware_concurrency() / 2;
+    unsigned int MAX_CONCURRENT_THREADS = std::thread::hardware_concurrency();
 
     // Generate a checkpoint for the start point if found
     std::optional<Database::Checkpoint> checkpointOpt = this->database.GetCheckpoint(start);
@@ -91,7 +92,7 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint st
     Database::Checkpoint checkpoint;
     size_t chunkStartPoint{start};
     size_t chunkEndPoint; //{std::min(chunkStartPoint + Syncer::CHUNK_SIZE - 1, static_cast<size_t>(end))};
-    bool allowMultipleThreads{false};
+
     if (end - chunkStartPoint + 1 >= Syncer::CHUNK_SIZE)
     {
         chunkEndPoint = chunkStartPoint + Syncer::CHUNK_SIZE - 1;
@@ -129,8 +130,6 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint st
         this->DownloadBlocks(downloadedBlocks, chunkStartPoint, chunkEndPoint);
         // Create processable chunk
         std::vector<Json::Value> chunk(downloadedBlocks.begin(), downloadedBlocks.end());
-
-        if (allowMultipleThreads) {
 
                     // Max number of threads have been met
         while (processingThreads.size() >= MAX_CONCURRENT_THREADS)
@@ -171,9 +170,7 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint st
             isTrackingCheckpointForChunks, chunk, chunkStartPoint, chunkEndPoint,
             checkpointExist ? checkpoint.lastCheckpoint : 0, isExistingCheckpoint ? start : chunkStartPoint);
 
-        } else {
-            this->database.StoreChunk(isTrackingCheckpointForChunks, chunk, chunkStartPoint, chunkEndPoint, checkpointExist ? checkpoint.lastCheckpoint : 0, isExistingCheckpoint ? start : chunkStartPoint);
-        }
+
 
         // All blocks processed
         downloadedBlocks.clear();
@@ -217,6 +214,57 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint st
     }
 }
 
+void Syncer::StartSyncLoop()
+{
+    const std::chrono::seconds syncInterval(60);
+
+    while (run_syncing)
+    {
+        std::lock_guard<std::mutex> syncLock(cs_sync);
+
+        bool shouldSync = this->ShouldSyncWallet();
+
+        if (shouldSync)
+        {
+            this->Sync();
+        }
+
+        std::cout << "Sleeping before checking sync thread: " << syncInterval.count() << " seconds" << std::flush;
+        std::this_thread::sleep_for(syncInterval);
+    }
+}
+
+void Syncer::InvokePeersListRefreshLoop()
+{
+    while (this->run_peer_monitoring) {
+        try {
+            std::lock_guard<std::mutex> lock(httpClientMutex);
+            Json::Value peer_info = this->httpClient.getpeerinfo();
+            this->database.StorePeers(peer_info);
+        } catch(const std::exception& e) {
+            std::cout << e.what() << std::endl;
+        }
+
+        std::this_thread::sleep_for(std::chrono::minutes(2));
+    }
+}
+
+void Syncer::InvokeChainInfoRefreshLoop()
+{
+    while (this->run_chain_info_monitoring) {
+        try {
+            std::lock_guard<std::mutex> lock(httpClientMutex);
+            Json::Value chain_info = this->httpClient.getblockchaininfo();
+            std::cout << chain_info.toStyledString() << std::endl;
+            this->database.StoreChainInfo(chain_info);
+        } catch(const std::exception& e) {
+            std::cout << e.what() << std::endl; 
+        }
+
+        std::this_thread::sleep_for(std::chrono::minutes(2)); 
+    }
+}
+
 void Syncer::Sync()
 {
     try
@@ -224,15 +272,6 @@ void Syncer::Sync()
         this->isSyncing = true;
 
         // TODO: Sync missed blocks
-        // if (missedBlocks < CHUNK_SIZE) {
-        //     std::vector<size_t> heights;
-        //     for (size_t i = this->latestBlockSynced + 1; i < this->latestBlockCount + 1; i++)
-        //     {
-        //         // add to vector each height
-        //         heights.push_back(i);
-        //     }
-        //     this->DoConcurrentSyncOnChunk(heights);
-        // }
 
         // Sync unfinished checkpoints
         std::stack<Database::Checkpoint> checkpoints = this->database.GetUnfinishedCheckpoints();
@@ -385,6 +424,7 @@ void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t s
         blockResultSerialized.clear();
         getblockParams.clear();
         startRange++;
+        std::cout << "Current block download: " << startRange << std::endl;
     }
 }
 
@@ -401,7 +441,6 @@ void Syncer::LoadTotalBlockCountFromChain()
     try
     {
         std::lock_guard<std::mutex> lock(httpClientMutex);
-        httpClient.getInfo();
         Json::Value p = Json::nullValue;
         Json::Value response = httpClient.getblockcount();
         this->latestBlockCount = response.asLargestUInt();
@@ -454,4 +493,20 @@ bool Syncer::ShouldSyncWallet()
 bool Syncer::GetSyncingStatus() const
 {
     return this->isSyncing;
+}
+
+void Syncer::StopPeerMonitoring()
+{
+    this->run_peer_monitoring = false;
+}
+
+void Syncer::StopSyncing()
+{
+    this->run_syncing = false;
+}
+
+void Syncer::Stop()
+{
+    this->StopPeerMonitoring();
+    this->StopSyncing();
 }

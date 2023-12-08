@@ -8,18 +8,19 @@ services:
     user: root
     cap_add:
       - NET_ADMIN
-    depends_on:
-      db:
-        condition: service_healthy
+    # depends_on:
+    #   db:
+    #     condition: service_healthy
     environment:
-      DB_HOST: db
+      DB_HOST: "34.170.25.118"
       DB_PORT: "5432"
       DB_NAME: postgres
       DB_USER: postgres
-      DB_PASSWORD: mysecretpassword
-      RPC_URL: http://zcash_zcashd:8232
+      DB_PASSWORD: Q9X638hs2Y78
+      RPC_URL: http://192.168.1.180:8232
       RPC_USERNAME: user
       RPC_PASSWORD: password
+      ALLOW_MULTIPLE_THREADS: true
 
   db:
     image: postgres:latest
@@ -68,6 +69,7 @@ services:
       - DB_NAME=postgres 
       - DB_USER=postgres 
       - DB_PASSWORD=mysecretpassword
+      - PORT=8000
 
 volumes:
   postgres_data:

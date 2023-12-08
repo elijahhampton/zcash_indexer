@@ -15,6 +15,7 @@ private:
     std::string password;
 
 public:
+    CustomClient();
     CustomClient(const std::string &url, const std::string &username, const std::string &password);
     ~CustomClient();
     void setInfo(std::string url, std::string username, std::string password);  
@@ -26,6 +27,7 @@ public:
     Json::Value getblockheader(const Json::Value &param01, const Json::Value &param02);
     Json::Value getblock(const Json::Value &param01, const Json::Value &param02);
     std::string base64Encode(const std::string &input);
+    Json::Value getpeerinfo();
 };
 
 #endif
