@@ -13,3 +13,6 @@ launch.json
 zcash-data-dir
 zcash-params-dir
 .vscode
+*.sql
+*.o
+Dockerfile_prod.yml
