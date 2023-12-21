@@ -29,8 +29,6 @@ RUN apt-get update && apt-get install -y \
 
 COPY . .
 
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
 COPY ./postgresql.conf /var/lib/postgresql/data/postgresql.conf
 
 RUN CXX=clang++ make clean && make
