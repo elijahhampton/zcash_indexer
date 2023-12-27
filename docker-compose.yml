@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    user: root
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      zcash_zcashd: 
+        condition: service_healthy
+    environment:
+      DB_HOST: "34.170.25.118"
+      DB_PORT: "5432"
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD}
+      RPC_URL: zcash_zcashd:8232
+      RPC_USERNAME: user
+      RPC_PASSWORD: ${RPC_PASSWORD}
+      ALLOW_MULTIPLE_THREADS: true
+
+  zcash_zcashd:
+    image: electriccoinco/zcashd
+    healthcheck:
+      test: ["CMD-SHELL", "zcash-cli getinfo || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 1
+      start_period: 1m
+    user: root
+    volumes:
+      - ./zcash-data-dir:/srv/zcashd/.zcash
+      - ./zcash-params-dir:/srv/zcashd/.zcash-params
+      - ./zcash-data-dir/zcash.conf:/root/.zcash/zcash.conf
+    environment:
+      ZCASHD_NETWORK: "mainnet" 
+      ZCASHD_RPCPASSWORD: ${ZCASHD_RPCPASSWORD}
+      ZCASHD_RPCUSER: "user"
+      ZCASHD_ALLOWIP: "0.0.0.0/0"
+    ports:
+      - "8232:8232"
+      - "8233:8233"
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+
+volumes:
+  zcash_data:
+  zcash_params:
+ 
