@@ -1,7 +1,7 @@
 GCR_HOST = gcr.io
-PROJECT_ID = be-infra
-REPO_NAME = be-api
-IMAGE_TAG = development
+PROJECT_ID = sigma-scheduler-405523
+REPO_NAME = be-sync
+IMAGE_TAG = latest
 
 IMAGE = $(GCR_HOST)/$(PROJECT_ID)/$(REPO_NAME):$(IMAGE_TAG)
 
@@ -57,4 +57,16 @@ $(TARGET): $(CXX_OBJS)
 # Clean rule
 clean:
 	rm -f $(CXX_OBJS) $(TARGET)
+
+build: 
+	docker build -t $(IMAGE) .
+
+tag:
+	docker tag $(IMAGE) $(IMAGE)
+
+push:
+	docker push $(IMAGE)
+
+run:
+	docker run $(IMAGE)
 

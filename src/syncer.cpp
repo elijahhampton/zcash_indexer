@@ -17,14 +17,13 @@
 #include "config.h"
 
 size_t Syncer::CHUNK_SIZE = 500;
+uint8_t Syncer::BLOCK_DOWNLOAD_VERBOSE_LEVEL = 2;
 
 Syncer::Syncer(CustomClient &httpClientIn, Database &databaseIn) : httpClient(httpClientIn), database(databaseIn), latestBlockSynced{0}, latestBlockCount{0}, isSyncing{false}
 {
 }
 
-Syncer::~Syncer()
-{
-}
+Syncer::~Syncer() {}
 
 void Syncer::CheckAndDeleteJoinableProcessingThreads(std::vector<std::thread> &processingThreads)
 {
@@ -47,11 +46,11 @@ void Syncer::DoConcurrentSyncOnChunk(std::vector<size_t> chunkToProcess)
 
     // Launch a new thread for the current chunk
     processingThreads.emplace_back(
-        [this](bool a, const std::vector<Json::Value> &b, size_t c, size_t d, size_t e, size_t f)
+        [this](bool a, const std::vector<Json::Value> &b, uint64_t c, uint64_t d, uint64_t e)
         {
-            this->database.StoreChunk(a, b, c, d, e, f);
+            this->database.StoreChunk(a, b, c, d, e);
         },
-        false, chunk, -1, -1, -1, -1);
+        false, chunk, Database::InvalidHeight, Database::InvalidHeight, Database::InvalidHeight);
 
     // All blocks have been synced since last sync() call.
     // Wait for all remaining threads to complete
@@ -84,14 +83,14 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint st
     uint joinableThreadCoolOffTimeInSeconds = 10;
     std::vector<std::thread> processingThreads;
     std::vector<Json::Value> downloadedBlocks;
-    unsigned int MAX_CONCURRENT_THREADS = std::thread::hardware_concurrency();
+    uint8_t MAX_CONCURRENT_THREADS = std::thread::hardware_concurrency();
 
     // Generate a checkpoint for the start point if found
     std::optional<Database::Checkpoint> checkpointOpt = this->database.GetCheckpoint(start);
     bool checkpointExist = checkpointOpt.has_value();
     Database::Checkpoint checkpoint;
     size_t chunkStartPoint{start};
-    size_t chunkEndPoint; //{std::min(chunkStartPoint + Syncer::CHUNK_SIZE - 1, static_cast<size_t>(end))};
+    size_t chunkEndPoint; 
 
     if (end - chunkStartPoint + 1 >= Syncer::CHUNK_SIZE)
     {
@@ -163,12 +162,11 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint st
         // Launch a new thread for the current chunk
         std::cout << "Processing new block chunk starting at range: " << chunkStartPoint << std::endl;
         processingThreads.emplace_back(
-            [this](bool a, const std::vector<Json::Value> &b, size_t c, size_t d, size_t e, size_t f)
+            [this](bool a, const std::vector<Json::Value> &b, uint64_t c, uint64_t d, uint64_t e)
             {
-                this->database.StoreChunk(a, b, c, d, e, f);
+                this->database.StoreChunk(a, b, c, d, e);
             },
-            isTrackingCheckpointForChunks, chunk, chunkStartPoint, chunkEndPoint,
-            checkpointExist ? checkpoint.lastCheckpoint : 0, isExistingCheckpoint ? start : chunkStartPoint);
+            isTrackingCheckpointForChunks, chunk, chunkStartPoint, chunkEndPoint, isExistingCheckpoint ? start : chunkStartPoint);
 
 
 
@@ -390,14 +388,15 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
 void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t startRange, uint64_t endRange)
 {
     std::cout << "Downloading blocks starting at " << startRange << " and ending at " << endRange << std::endl;
-    Json::Value getblockParams;
-    Json::Value blockResultSerialized;
-
+    
     std::lock_guard<std::mutex> lock(httpClientMutex);
+    Json::Value getblockParams{Json::nullValue};
+    Json::Value blockResultSerialized{Json::nullValue};
+
     while (startRange <= endRange)
     {
         getblockParams.append(Json::Value(std::to_string(startRange)));
-        getblockParams.append(Json::Value(2));
+        getblockParams.append(Json::Value(Syncer::BLOCK_DOWNLOAD_VERBOSE_LEVEL));
 
         try
         {
@@ -412,12 +411,12 @@ void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t s
         }
         catch (jsonrpc::JsonRpcException &e)
         {
-            std::cout << e.what() << std::endl;
+            this->database.AddMissedBlock(startRange);
             downloadBlocks.push_back(Json::nullValue);
         }
         catch (std::exception &e)
         {
-            std::cout << e.what() << std::endl;
+            this->database.AddMissedBlock(startRange);
             downloadBlocks.push_back(Json::nullValue);
         }
 

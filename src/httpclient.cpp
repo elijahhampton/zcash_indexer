@@ -50,33 +50,12 @@ std::string CustomClient::base64Encode(const std::string &data) {
     return encoded;
 }
 
-CustomClient::CustomClient(): httpClient(""), rpcClient(httpClient, jsonrpc::JSONRPC_CLIENT_V1) {}
-
 CustomClient::CustomClient(const std::string &url, const std::string &username, const std::string &password)
     : httpClient(url), rpcClient(httpClient, jsonrpc::JSONRPC_CLIENT_V1)
 {
-    std::cout << "Initializing http client with url: " << url << std::endl;
-    std::cout << "Initializing http client with username: " << username << std::endl;
-    std::cout << "Initializing http client with password: " << password << std::endl;
-
     // Encode username and password in base64 for the Authorization header
     std::string authHeader = "Basic " + this->base64Encode(username + ":" + password);
     httpClient.AddHeader("Authorization", authHeader);
-    this->setInfo(url, username, password); // Assuming setInfo is a valid method within your class
-}
-
-void CustomClient::getInfo() {
-    std::cout << this->url << " .... " << this->username << " ..... " << this->password << std::endl;
-}
-
-void CustomClient::setInfo(std::string url, std::string username, std::string password) {
-    this->url = url;
-    this->username = username;
-    this->password = password;
-}
-
-CustomClient::~CustomClient() {
-    std::cout << "Destroying CustomClient instance..." << std::endl;
 }
 
 Json::Value CustomClient::CallMethod(const std::string &method, const Json::Value &params)

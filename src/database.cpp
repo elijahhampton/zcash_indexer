@@ -6,12 +6,13 @@
 #include <boost/serialization/nvp.hpp>
 #include <boost/multiprecision/cpp_dec_float.hpp>
 
+
 using boost::multiprecision::cpp_dec_float_50;
 
 std::mutex Database::databaseConnectionCloseMutex;
 std::condition_variable Database::databaseConnectionCloseCondition;
 
-Database::Database() {}
+const uint64_t Database::InvalidHeight;
 
 Database::~Database()
 {
@@ -69,7 +70,6 @@ std::unique_ptr<pqxx::connection> Database::GetConnection()
     }
     catch (std::exception &e)
     {
-        std::cout << e.what() << std::endl;
         return nullptr;
     }
 
@@ -94,7 +94,6 @@ void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn)
     }
     catch (const std::exception &e)
     {
-        std::cout << e.what() << std::endl;
         throw std::runtime_error("Failed to release a database connection.");
     }
 }
@@ -144,7 +143,7 @@ void Database::CreateTables()
                                                      "hex TEXT, "
                                                      "hash TEXT, "
                                                      "timestamp INTEGER, "
-                                                     "height TEXT, "
+                                                     "height INTEGER, "
                                                      "num_inputs INTEGER, "
                                                      "num_outputs INTEGER"
                                                      ")",
@@ -199,18 +198,14 @@ void Database::CreateTables()
     }
     catch (const pqxx::sql_error &e)
     {
-                        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
         throw;
     }
     catch (const std::exception &e)
     {
-                        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
         throw;
     }
-
-    std::cout << "Successfully created tables.." << std::endl;
 }
 
 void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProcessingChunkHeight)
@@ -239,14 +234,13 @@ void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProc
     }
     catch (std::exception &e)
     {
-        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
     }
 }
 
 std::optional<Database::Checkpoint> Database::GetCheckpoint(signed int chunkStartHeight)
 {
-    if (chunkStartHeight == -1)
+    if (chunkStartHeight == Database::InvalidHeight)
     {
         return std::nullopt;
     }
@@ -326,7 +320,7 @@ void Database::CreateCheckpointIfNonExistent(size_t chunkStartHeight, size_t chu
     }
     catch (std::exception &e)
     {
-        std::cout << e.what() << std::endl;
+
     }
 }
 
@@ -368,12 +362,10 @@ std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints()
     }
     catch (const pqxx::sql_error &e)
     {
-        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
     }
     catch (const std::exception &e)
     {
-        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
     }
 }
@@ -386,12 +378,11 @@ void Database::RemoveMissedBlock(size_t blockHeight)
 {
 }
 
-void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, signed int chunkStartHeight, signed int chunkEndHeight, signed int lastCheckpoint, signed int trueRangeStartHeight)
+void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight)
 {
     std::cout << "StoreChunk("
               << "ChunkStart=" << chunkStartHeight << " "
               << "ChunkEnd=" << chunkEndHeight << " "
-              << "LastCheck=" << lastCheckpoint << " "
               << "TrueRange=" << trueRangeStartHeight << std::endl;
 
     std::optional<Database::Checkpoint> checkpointOpt = this->GetCheckpoint(trueRangeStartHeight);
@@ -504,8 +495,6 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         }
         catch (const pqxx::sql_error &e)
         {
-            std::cout << e.what() << std::endl;
-
             if (e.sqlstate().find("duplicate key value violates unique constraint") != std::string::npos)
             {
             }
@@ -518,7 +507,6 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         }
         catch (const std::exception &e)
         {
-            std::cout << e.what() << std::endl;
             this->AddMissedBlock(item["height"].asLargestInt());
             shouldCommitBlock = false;
         }
@@ -531,7 +519,6 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         }
         if (isTrackingCheckpointForChunk)
         {
-            std::cout << "Handling checkpoint tracking." << std::endl;
             // TODO: If the checkpont doesn't exist the update chunk checkpoint function shouldn't update it.. throw error
             auto now = std::chrono::steady_clock::now();
             auto elapsedTimeSinceLastCheckpoint = now - timeSinceLastCheckpoint;
@@ -651,7 +638,6 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
         std::string nextBlockHash;
         std::string merkle_root;
         int timestamp;
-        int difficulty;
         std::string nonce;
         std::string hash;
         int height;
@@ -673,7 +659,6 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                 nextBlockHash = block["previousblockhash"].asString();
                 merkle_root = block["merkleroot"].asString();
                 timestamp = block["time"].asInt();
-                difficulty = block["difficulty"].asInt();
                 std::string nonce = block["nonce"].asString();
                 Json::Value transactions = tx;
                 std::string hash = block["hash"].asString();
@@ -722,7 +707,6 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                                 {
                                     pqxx::row output_specified_in_vin = vin_transaction_look_buffer.value();
                                     current_input_value = output_specified_in_vin["value"].as<double>();
-                                    std::cout << "Adding value: " << current_input_value << std::endl;
                                     total_public_input += current_input_value;
                                     senders = output_specified_in_vin["recipients"].as<std::string>();
                                 }
@@ -739,12 +723,10 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                         }
                         catch (const pqxx::sql_error &e)
                         {
-                            std::cout << e.what() << std::endl;
                             throw;
                         }
                         catch (const std::exception &e)
                         {
-                            std::cout << e.what() << std::endl;
                             throw;
                         }
                     }
@@ -792,12 +774,10 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                         }
                         catch (const pqxx::sql_error &e)
                         {
-                            std::cout << e.what() << std::endl;
                             throw;
                         }
                         catch (const std::exception &e)
                         {
-                            std::cout << e.what() << std::endl;
                             throw;
                         }
                     }
@@ -810,7 +790,6 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
             }
             catch (const pqxx::sql_error &e)
             {
-                std::cout << e.what() << std::endl;
                 conn->unprepare(insert_transactions_prepare);
                 conn->unprepare(insert_transparent_inputs_prepare);
                 conn->unprepare(insert_transparent_outputs_prepare);
@@ -818,7 +797,6 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
             }
             catch (const std::exception &e)
             {
-                std::cout << e.what() << std::endl;
                 conn->unprepare(insert_transactions_prepare);
                 conn->unprepare(insert_transparent_inputs_prepare);
                 conn->unprepare(insert_transparent_outputs_prepare);
@@ -859,13 +837,11 @@ unsigned int Database::GetSyncedBlockCountFromDB()
     }
     catch (std::exception &e)
     {
-        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
         return 0;
     }
     catch (pqxx::unexpected_rows &e)
     {
-        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
         return 0;
     }
@@ -885,7 +861,6 @@ void Database::StorePeers(const Json::Value &peer_info)
 
         if (peer_info.isNull())
         {
-            std::cout << "NULL" << std::endl;
             this->ReleaseConnection(std::move(connection));
             return;
         }
@@ -896,7 +871,6 @@ void Database::StorePeers(const Json::Value &peer_info)
         {
             for (const Json::Value &peer : peer_info)
             {
-                std::cout << peer["addr"].asString() << std::endl;
                 tx.exec_prepared("insert_peer_info", peer["addr"].asString(), peer["lastsend"].asString(), peer["lastrecv"].asString(), peer["conntime"].asString(), peer["subver"].asString(), peer["synced_blocks"].asString());
             }
 
@@ -907,7 +881,6 @@ void Database::StorePeers(const Json::Value &peer_info)
     }
     catch (const std::exception &e)
     {
-        std::cout << "Error encountered while storing updated peers." << e.what() << std::endl;
         this->ReleaseConnection(std::move(connection));
     }
 
@@ -916,7 +889,6 @@ void Database::StorePeers(const Json::Value &peer_info)
 
 void Database::StoreChainInfo(const Json::Value& chain_info)
 {
-    std::cout << chain_info.toStyledString() << std::endl;
 
     if (!chain_info.isNull()) {
         const char * insert_chain_info_query{"INSERT INTO chain_info (orchard_pool_value, best_block_hash, size_on_disk, best_height, total_chain_value) VALUES ($1, $2, $3, $4, $5)"};
@@ -943,7 +915,6 @@ void Database::StoreChainInfo(const Json::Value& chain_info)
             tx.commit();
             this->ReleaseConnection(std::move(conn));
         } catch(const std::exception& e) {
-            std::cout << e.what() << std::endl;
             this->ReleaseConnection(std::move(conn));
         }
     }

@@ -15,11 +15,8 @@ private:
     std::string password;
 
 public:
-    CustomClient();
     CustomClient(const std::string &url, const std::string &username, const std::string &password);
-    ~CustomClient();
-    void setInfo(std::string url, std::string username, std::string password);  
-    void getInfo();
+    ~CustomClient() noexcept = default;
     Json::Value CallMethod(const std::string &method, const Json::Value &params);
     Json::Value getinfo();
     Json::Value getblockchaininfo();

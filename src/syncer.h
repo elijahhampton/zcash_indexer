@@ -158,6 +158,7 @@ private:
     void Stop();
 
 public:
+    static uint8_t BLOCK_DOWNLOAD_VERBOSE_LEVEL;
     /**
      * @brief Static variable representing the size of each chunk of blocks to be synchronized.
      */
@@ -193,6 +194,8 @@ public:
      */
     static void StartSync();
 
+    Syncer() = default;
+
     /**
      * @brief Constructs a Syncer object.
      *
@@ -208,7 +211,7 @@ public:
      *
      * Handles any cleanup required when a Syncer object is destroyed, ensuring all resources are released properly.
      */
-    ~Syncer();
+    ~Syncer() noexcept;
 };
 
 #endif // SYNCER_H

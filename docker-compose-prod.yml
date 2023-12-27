@@ -9,37 +9,27 @@ services:
     cap_add:
       - NET_ADMIN
     depends_on:
-      db:
-        condition: service_healthy
       zcash_zcashd: 
         condition: service_healthy
     environment:
-      DB_HOST: db
+      DB_HOST: "34.170.25.118"
       DB_PORT: "5432"
       DB_NAME: postgres
       DB_USER: postgres
-      DB_PASSWORD: password
-      RPC_URL: zcash_zcashd
+      DB_PASSWORD: Q9X638hs2Y78
+      RPC_URL: zcash_zcashd:8232
       RPC_USERNAME: user
       RPC_PASSWORD: password
       ALLOW_MULTIPLE_THREADS: true
 
-  db:
-    image: postgres:latest
-    user: root
-    environment:
-      POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"]
-
   zcash_zcashd:
     image: electriccoinco/zcashd
+    healthcheck:
+      test: ["CMD-SHELL", "zcash-cli getinfo || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 1
+      start_period: 1m
     user: root
     volumes:
       - ./zcash-data-dir:/srv/zcashd/.zcash
@@ -57,24 +47,6 @@ services:
       - NET_ADMIN
     privileged: true
 
-  api:
-    user: root
-    build:
-      context: ../block_explorer_api/  
-      dockerfile: Dockerfile  
-    ports:
-      - "8000:8000"  
-    depends_on:
-      - db  
-    environment:
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_NAME=postgres 
-      - DB_USER=postgres 
-      - DB_PASSWORD=mysecretpassword
-      - PORT=8000
-
 volumes:
-  postgres_data:
   zcash_data:
   zcash_params:

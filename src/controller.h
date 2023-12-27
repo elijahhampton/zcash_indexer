@@ -24,7 +24,7 @@ private:
 
 public:
     Controller();
-    ~Controller();
+    ~Controller() noexcept;
     void InitAndSetup();
     void Shutdown();
     void StartSyncLoop();

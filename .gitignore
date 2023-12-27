@@ -15,4 +15,5 @@ zcash-params-dir
 .vscode
 *.sql
 *.o
-Dockerfile-compose-prod.yml
+dockerfile-compose-prod.yml
+dockerfile-compose-dev.yml

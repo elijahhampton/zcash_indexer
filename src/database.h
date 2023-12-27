@@ -12,6 +12,7 @@
 #include <chrono>
 #include <fstream>
 #include <queue>
+#include <limits>
 #include <jsonrpccpp/common/jsonparser.h>
 
 #include "httpclient.h"
@@ -122,10 +123,9 @@ private:
      * @param chunk The chunk of data to store.
      * @param chunkStartHeight The starting height of the chunk.
      * @param chunkEndHeight The ending height of the chunk.
-     * @param lastCheckpoint The last processed checkpoint. Defaults to -1 if not provided.
-     * @param trueRangeStartHeight The true starting height of the range. Defaults to -1 if not provided.
+     * @param trueRangeStartHeight The true starting height of the range. Defaults to 0 if not provided.
      */
-    void StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, signed int chunkStartHeight, signed int chunkEndHeight, signed int lastCheckpoint = -1, signed int trueRangeStartHeight = -1);
+    void StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, uint64_t  chunkStartHeight, uint64_t  chunkEndHeight, uint64_t trueRangeStartHeight = Database::InvalidHeight);
 
     /**
      * Stores transactions related to a block in the database.
@@ -146,6 +146,7 @@ private:
     void StoreChainInfo(const Json::Value& chain_info);
     
 public:
+ static const uint64_t InvalidHeight{std::numeric_limits<uint64_t>::max()};
  struct Checkpoint {
         size_t chunkStartHeight;
         size_t chunkEndHeight;
@@ -155,7 +156,7 @@ public:
     /**
      * Constructs the Database object.
      */
-    Database();
+    Database() = default;
 
     /**
      * Destructs the Database object and releases resources.

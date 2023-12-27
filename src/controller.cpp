@@ -1,5 +1,4 @@
 #include "controller.h"
-// #include "json/json.h"
 
 #include <vector>
 #include <string>
@@ -14,7 +13,6 @@ Controller::Controller()
 try : rpcClient(std::make_unique<CustomClient>(Config::getRpcUrl(), Config::getRpcUsername(), Config::getRpcPassword())),
     syncer(std::make_unique<Syncer>(*rpcClient, database))
 {
-    std::cout << Config::getRpcUrl() << std::endl;
     const std::string connection_string =
         "dbname=" + Config::getDatabaseName() +
         " user=" + Config::getDatabaseUser() +
@@ -74,7 +72,6 @@ void Controller::StartMonitoringChainInfo()
 
 void Controller::Shutdown()
 {
-    std::cout << "Calling Shutdown on controller" << std::endl;
     this->syncer->Stop();
 }
 
