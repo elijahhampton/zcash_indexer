@@ -67,7 +67,7 @@ private:
      *
      * @note The synchronization only operates in fixed ranges as defined by CHUNK_SIZE(s).
      */
-    void DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint start, uint end);
+    void DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint64_t start, uint64_t end);
     void StartSyncLoop();
     /**
      * @brief Syncs blocks based on a list of heights.

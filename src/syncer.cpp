@@ -76,7 +76,7 @@ void Syncer::DoConcurrentSyncOnChunk(std::vector<size_t> chunkToProcess)
     }
 }
 
-void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint start, uint end)
+void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint64_t start, uint64_t end)
 {
     std::cout << "DoConcurrentSyncOnRange(uint start, uint end)"
               << "(" << start << "," << end << ")" << std::endl;

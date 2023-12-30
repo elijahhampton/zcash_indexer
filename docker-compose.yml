@@ -12,7 +12,7 @@ services:
       zcash_zcashd: 
         condition: service_healthy
     environment:
-      DB_HOST: "34.170.25.118"
+      DB_HOST: ${DB_HOST}
       DB_PORT: "5432"
       DB_NAME: postgres
       DB_USER: postgres
