@@ -17,7 +17,7 @@ services:
       DB_NAME: postgres
       DB_USER: postgres
       DB_PASSWORD: ${DB_PASSWORD}
-      RPC_URL: zcash_zcashd:8232
+      RPC_URL: zcash_zcashd:8233
       RPC_USERNAME: user
       RPC_PASSWORD: ${RPC_PASSWORD}
       ALLOW_MULTIPLE_THREADS: true
@@ -34,7 +34,6 @@ services:
     volumes:
       - ./zcash-data-dir:/srv/zcashd/.zcash
       - ./zcash-params-dir:/srv/zcashd/.zcash-params
-      - ./zcash-data-dir/zcash.conf:/root/.zcash/zcash.conf
     environment:
       ZCASHD_NETWORK: "mainnet" 
       ZCASHD_RPCPASSWORD: ${ZCASHD_RPCPASSWORD}
