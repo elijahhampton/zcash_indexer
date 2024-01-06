@@ -214,7 +214,7 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint64_
 
 void Syncer::StartSyncLoop()
 {
-    const std::chrono::seconds syncInterval(60);
+    const std::chrono::seconds syncInterval(1);
 
     while (run_syncing)
     {
@@ -243,7 +243,7 @@ void Syncer::InvokePeersListRefreshLoop()
             std::cout << e.what() << std::endl;
         }
 
-        std::this_thread::sleep_for(std::chrono::minutes(2));
+        std::this_thread::sleep_for(std::chrono::hours(24));
     }
 }
 
@@ -259,7 +259,7 @@ void Syncer::InvokeChainInfoRefreshLoop()
             std::cout << e.what() << std::endl; 
         }
 
-        std::this_thread::sleep_for(std::chrono::minutes(2)); 
+        std::this_thread::sleep_for(std::chrono::minutes(30)); 
     }
 }
 
@@ -270,6 +270,8 @@ void Syncer::Sync()
         this->isSyncing = true;
 
         // TODO: Sync missed blocks
+        // std::list<std::uint64_t> missedBlocks = this->database.GetMissedBlocks();
+        // this->SyncMissedBlocks(missedBlocks, SyncDirection::Reverse);
 
         // Sync unfinished checkpoints
         std::stack<Database::Checkpoint> checkpoints = this->database.GetUnfinishedCheckpoints();

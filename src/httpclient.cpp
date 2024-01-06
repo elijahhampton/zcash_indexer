@@ -55,6 +55,9 @@ CustomClient::CustomClient(const std::string &url, const std::string &username, 
 {
     // Encode username and password in base64 for the Authorization header
     std::string authHeader = "Basic " + this->base64Encode(username + ":" + password);
+    std::cout << "Authorization: " << authHeader << std::endl;
+    std::cout << "User: " << username << std::endl;
+    std::cout << "Password: " << password << std::endl;
     httpClient.AddHeader("Authorization", authHeader);
 }
 

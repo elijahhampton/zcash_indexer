@@ -528,7 +528,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
             {
                 checkpoint = checkpointOpt.value();
 
-                if (elapsedTimeSinceLastCheckpoint >= std::chrono::seconds(5))
+                if (elapsedTimeSinceLastCheckpoint >= std::chrono::seconds(10))
                 {
 
                     this->UpdateChunkCheckpoint(checkpointExist ? checkpoint.chunkStartHeight : chunkStartHeight, chunkCurrentProcessingIndex);

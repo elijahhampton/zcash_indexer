@@ -30,7 +30,7 @@ services:
       timeout: 10s
       retries: 1
       start_period: 1m
-    user: root
+    user: "2001:2001" 
     volumes:
       - ./zcash-data-dir:/srv/zcashd/.zcash
       - ./zcash-params-dir:/srv/zcashd/.zcash-params
