@@ -51,6 +51,10 @@ public:
         return getEnv("RPC_PASSWORD", "password");
     }
 
+    static std::string getBlockChunkProcessingSize() {
+        return getEnv("BLOCK_CHUNK_PROCESSING_SIZE", "500");
+    }
+
     static std::string getAllowMultipleThreads() {
         return getEnv("ALLOW_MULTIPLE_THREADS", "false");
     }
