@@ -96,21 +96,13 @@ void Controller::JoinJoinableSyncingOperations()
 int main()
 {
     try
-    {
         Controller controller;
         controller.InitAndSetup();
         controller.StartSyncLoop();
         controller.StartMonitoringPeers();
         controller.StartMonitoringChainInfo();
         controller.JoinJoinableSyncingOperations();
-
-        // Now shutdown the controller, which will join the threads
         controller.Shutdown();
-    }
-    catch (const std::exception &e)
-    {
-        std::cout << e.what() << std::endl;
-    }
 
     return 0;
 }
