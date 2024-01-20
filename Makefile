@@ -30,15 +30,15 @@ LIBS = -ljsonrpccpp-common \
        -lboost_serialization \
        -ljsoncpp \
        -ljsonrpccpp-stub \
-       -lpthread \
        -lpqxx \
        -lcrypto \
-       -lboost_system \
        -lboost_filesystem \
+       -lboost_thread \
+       -lboost_system \
        -lpthread -ldl -lm
 
 # Source files
-CXX_SRCS = src/syncer.cpp src/controller.cpp src/database.cpp src/httpclient.cpp
+CXX_SRCS = src/syncer.cpp src/thread_pool.cpp src/controller.cpp src/database.cpp src/httpclient.cpp
 
 # Object files
 CXX_OBJS = $(CXX_SRCS:.cpp=.o)

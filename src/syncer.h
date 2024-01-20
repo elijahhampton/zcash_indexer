@@ -7,6 +7,7 @@
 
 #include "database.h"
 #include "httpclient.h"
+#include "thread_pool.h"
 #include <iostream>
 #include <string>
 #include <optional>
@@ -36,6 +37,8 @@ class Syncer
 private:
     CustomClient &httpClient;
     Database &database;
+
+    ThreadPool worker_pool;
 
     std::mutex db_mutex;
     std::mutex httpClientMutex;
@@ -205,6 +208,9 @@ public:
      * @param databaseIn Reference to the Database object for data storage and retrieval.
      */
     Syncer(CustomClient &httpClientIn, Database &databaseIn);
+
+    Syncer(const Syncer& syncer) = delete;
+    Syncer operator=(const Syncer& syncer) = delete;
 
     /**
      * @brief Destructor for the Syncer class.

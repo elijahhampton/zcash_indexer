@@ -10,30 +10,26 @@ services:
       - NET_ADMIN
     depends_on:
       zcash_zcashd: 
-        condition: service_healthy
+        condition: service_started
+      postgres:
+        condition: service_started
     environment:
-      DB_HOST: ${DB_HOST}
+      DB_HOST: postgres
       DB_PORT: "5432"
       DB_NAME: postgres
       DB_USER: postgres
       DB_PASSWORD: ${DB_PASSWORD}
-      RPC_URL: zcash_zcashd:8233
+      RPC_URL: zcash_zcashd:8232
       RPC_USERNAME: user
       RPC_PASSWORD: ${RPC_PASSWORD}
       ALLOW_MULTIPLE_THREADS: true
 
   zcash_zcashd:
     image: electriccoinco/zcashd
-    healthcheck:
-      test: ["CMD-SHELL", "zcash-cli getinfo || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 1
-      start_period: 1m
     user: "2001:2001" 
     volumes:
-      - ./zcash-data-dir:/srv/zcashd/.zcash
-      - ./zcash-params-dir:/srv/zcashd/.zcash-params
+      - zcash_data:/srv/zcashd/.zcash
+      - zcash_params:/srv/zcashd/.zcash-params
     environment:
       ZCASHD_NETWORK: "mainnet" 
       ZCASHD_RPCPASSWORD: ${ZCASHD_RPCPASSWORD}
@@ -46,7 +42,18 @@ services:
       - NET_ADMIN
     privileged: true
 
+  postgres:
+    image: postgres:16
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "5432:5432"
+
 volumes:
   zcash_data:
   zcash_params:
- 
+  postgres_data:

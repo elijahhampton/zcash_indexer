@@ -59,7 +59,6 @@ std::unique_ptr<pqxx::connection> Database::GetConnection()
 
         auto conn = std::move(connectionPool.front());
         connectionPool.pop();
-        std::cout << "GetConnection(). poolSize=" << connectionPool.size() << std::endl;
 
         if (conn == nullptr || !conn->is_open())
         {
@@ -82,15 +81,12 @@ void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn)
     {
         if (conn == nullptr || !conn->is_open())
         {
-            // Optionally handle invalid connection here
-            std::cout << "ReleaseConnection: Invalid connection. Connection is null or not open." << std::endl;
             return;
         }
 
         std::lock_guard<std::mutex> lock(poolMutex);
         connectionPool.push(std::move(conn));
         poolCondition.notify_one();
-        std::cout << "ReleaseConnection: Connection released. poolSize=" << connectionPool.size() << std::endl;
     }
     catch (const std::exception &e)
     {
@@ -180,7 +176,6 @@ void Database::CreateTables()
             }
             catch (const pqxx::sql_error &e)
             {
-                std::cout << e.what() << std::endl;
                 if (e.sqlstate() == "42P07")
                 {
                     std::cerr << "Table already exists: " << e.what() << std::endl;
@@ -210,7 +205,6 @@ void Database::CreateTables()
 
 void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProcessingChunkHeight)
 {
-    std::cout << "Updating check point: [" << chunkStartHeight << "," << currentProcessingChunkHeight << "]" << std::endl;
 
     // TODO: Check if checkpoint exist and throw a runtime error if it doesn't
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
@@ -297,7 +291,6 @@ void Database::CreateCheckpointIfNonExistent(size_t chunkStartHeight, size_t chu
 {
     try
     {
-        std::cout << "Creating chunk checkpoint: [ " << chunkStartHeight << " - " << chunkEndHeight << " ]" << std::endl;
 
         std::string insertCheckpointStatement = R"(
     INSERT INTO checkpoints (
@@ -380,11 +373,6 @@ void Database::RemoveMissedBlock(size_t blockHeight)
 
 void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight)
 {
-    std::cout << "StoreChunk("
-              << "ChunkStart=" << chunkStartHeight << " "
-              << "ChunkEnd=" << chunkEndHeight << " "
-              << "TrueRange=" << trueRangeStartHeight << std::endl;
-
     std::optional<Database::Checkpoint> checkpointOpt = this->GetCheckpoint(trueRangeStartHeight);
     bool checkpointExist = checkpointOpt.has_value();
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
@@ -425,7 +413,6 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
             const std::string hash = item["hash"].asString();
             const int height = item["height"].asLargestInt();
             const int size = item["size"].asInt();
-            const int numTxs = item["tx"].size();
             const std::string chainwork = item["chainwork"].asString();
             const std::string bits = item["bits"].asString();
 
@@ -434,9 +421,10 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
 
             // Parse transaction ids into sql list representation
             std::string transaction_ids_sql_representation = "{";
-            if (transactions.isArray() && transactions.size() > 0)
+            const int numTxs = item["tx"].size();
+            if (transactions.isArray() && numTxs > 0)
             {
-                for (int i = 0; i < transactions.size(); ++i)
+                for (int i = 0; i < numTxs; ++i)
                 {
                     num_outputs_in_block += transactions[i]["vout"].size();
                     num_inputs_in_block += transactions[i]["vin"].size();
@@ -445,7 +433,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
                     {
                         std::string txid = transactions[i]["txid"].asString();
                         transaction_ids_sql_representation += "\"" + txid + "\"";
-                        if (i < transactions.size() - 1)
+                        if (i < numTxs - 1)
                         {
                             transaction_ids_sql_representation += ",";
                         }
@@ -495,6 +483,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         }
         catch (const pqxx::sql_error &e)
         {
+                  std::cout << e.what() << std::endl;
             if (e.sqlstate().find("duplicate key value violates unique constraint") != std::string::npos)
             {
             }
@@ -507,6 +496,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         }
         catch (const std::exception &e)
         {
+            std::cout << e.what() << std::endl;
             this->AddMissedBlock(item["height"].asLargestInt());
             shouldCommitBlock = false;
         }
@@ -514,7 +504,6 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         // Commit the block before taking a checkpoint
         if (shouldCommitBlock)
         {
-            std::cout << "Commiting block" << std::endl;
             insertBlockWork.commit();
         }
         if (isTrackingCheckpointForChunk)
@@ -743,7 +732,6 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                     {
                         outputIndex = vOutEntry["n"].asLargestInt();
                         currentOutputValue = vOutEntry["value"].asDouble();
-                        std::cout << "Adding to total public output: " << currentOutputValue << std::endl;
                         total_public_output += currentOutputValue;
 
                         try

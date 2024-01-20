@@ -49,7 +49,7 @@ make clean
 
 ## Executing the program
 ```bash
-./syncer --dbname postgres --dbuser postgres --dbpassword mysecretpassword --dbhost localhost --dbport 5432 --rpcusername ZCASH_CONF_RPC_USERNAME --rpcpassword ZCASH_CONF_RPC_PASSWORD --rpcurl ZCASH_CONF_RPC_URL
+./syncer
 ```
 
 ## Debugging with LLDB
@@ -57,12 +57,6 @@ make clean
 This command launches LLDB and loads syncer as the target executable. LLDB should now be awaiting further commands.
 ```bash
 lldb syncer
-```
-
-### Setting Runtime Arguments:
-This command sets the runtime arguments for the syncer executable. These arguments are necessary for connecting to the specified database and RPC server.
-```bash
-settings set -- target.run-args --dbname postgres --dbuser postgres --dbpassword mysecretpassword --dbhost localhost --dbport 5432 --rpcusername elijah --rpcpassword Hamptonej1! --rpcurl http://127.0.0.1:8232
 ```
 
 ### Running the executable
