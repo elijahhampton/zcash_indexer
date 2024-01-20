@@ -283,14 +283,12 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
         }
         catch (jsonrpc::JsonRpcException &e)
         {
-            std::cout << e.what() << std::endl;
             ++i;
             getblockParams.clear();
             continue;
         }
         catch (std::exception &e)
         {
-            std::cout << e.what() << std::endl;
             ++i;
             getblockParams.clear();
             continue;
@@ -407,4 +405,5 @@ void Syncer::Stop()
 {
     this->StopPeerMonitoring();
     this->StopSyncing();
+    this->worker_pool.End();
 }
