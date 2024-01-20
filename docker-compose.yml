@@ -20,6 +20,7 @@ services:
       RPC_URL: zcash_zcashd:8233
       RPC_USERNAME: user
       RPC_PASSWORD: ${RPC_PASSWORD}
+      BLOCK_CHUNK_PROCESSING_SIZE: ${BLOCK_CHUNK_PROCESSING_SIZE}
       ALLOW_MULTIPLE_THREADS: true
 
   zcash_zcashd:

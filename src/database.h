@@ -163,7 +163,7 @@ public:
      */
     ~Database();
 
-    unsigned int GetSyncedBlockCountFromDB();
+    uint64_t GetSyncedBlockCountFromDB();
     std::optional<pqxx::row> GetTransactionById(const std::string& txid);
     std::optional<pqxx::row> GetOutputByTransactionIdAndIndex(const std::string& txid, uint64_t v_out_index);
     std::stack<Database::Checkpoint> GetUnfinishedCheckpoints();

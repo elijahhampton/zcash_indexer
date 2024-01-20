@@ -16,8 +16,8 @@
 #include <queue>
 #include "config.h"
 
-size_t Syncer::CHUNK_SIZE = 500;
-uint8_t Syncer::BLOCK_DOWNLOAD_VERBOSE_LEVEL = 2;
+size_t Syncer::CHUNK_SIZE = std::stoi(Config::getBlockChunkProcessingSize());
+const uint8_t Syncer::MAX_CONCURRENT_THREADS = std::thread::hardware_concurrency();
 
 Syncer::Syncer(CustomClient &httpClientIn, Database &databaseIn) : httpClient(httpClientIn), database(databaseIn), latestBlockSynced{0}, latestBlockCount{0}, isSyncing{false}
 {
@@ -33,18 +33,18 @@ void Syncer::CheckAndDeleteJoinableProcessingThreads(std::vector<std::thread> &p
                             processingThreads.end());
 }
 
-void Syncer::DoConcurrentSyncOnChunk(std::vector<size_t> chunkToProcess)
+void Syncer::DoConcurrentSyncOnChunk(const std::vector<size_t> &chunkToProcess)
 {
-    uint joinableThreadCoolOffTimeInSeconds = 10;
-    std::vector<std::thread> processingThreads;
-    std::vector<Json::Value> downloadedBlocks;
 
+    std::vector<Json::Value> downloadedBlocks;
     this->DownloadBlocksFromHeights(downloadedBlocks, chunkToProcess);
 
     // Create processable chunk
+
     std::vector<Json::Value> chunk(downloadedBlocks.begin(), downloadedBlocks.end());
 
     // Launch a new thread for the current chunk
+    std::vector<std::thread> processingThreads;
     processingThreads.emplace_back(
         [this](bool a, const std::vector<Json::Value> &b, uint64_t c, uint64_t d, uint64_t e)
         {
@@ -68,7 +68,7 @@ void Syncer::DoConcurrentSyncOnChunk(std::vector<size_t> chunkToProcess)
     // Erase the rest of the processing threads
     this->CheckAndDeleteJoinableProcessingThreads(processingThreads);
 
-      std::cout << "Processing threads size: " << processingThreads.size() << std::endl;
+    std::cout << "Processing threads size: " << processingThreads.size() << std::endl;
     // Make sure no threads exist
     if (processingThreads.size() > 0)
     {
@@ -80,17 +80,15 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint64_
 {
     std::cout << "DoConcurrentSyncOnRange(uint start, uint end)"
               << "(" << start << "," << end << ")" << std::endl;
-    uint joinableThreadCoolOffTimeInSeconds = 10;
     std::vector<std::thread> processingThreads;
     std::vector<Json::Value> downloadedBlocks;
-    uint8_t MAX_CONCURRENT_THREADS = std::thread::hardware_concurrency();
 
     // Generate a checkpoint for the start point if found
     std::optional<Database::Checkpoint> checkpointOpt = this->database.GetCheckpoint(start);
     bool checkpointExist = checkpointOpt.has_value();
     Database::Checkpoint checkpoint;
     size_t chunkStartPoint{start};
-    size_t chunkEndPoint; 
+    size_t chunkEndPoint;
 
     if (end - chunkStartPoint + 1 >= Syncer::CHUNK_SIZE)
     {
@@ -108,6 +106,7 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint64_
         // Set chunkStartPoint to the next block after the last check point
         chunkStartPoint = checkpoint.lastCheckpoint;
     }
+
     std::cout << "Syncing by range" << std::endl;
     std::cout << "Sync start: " << chunkStartPoint << std::endl;
     std::cout << "Sync End: " << chunkEndPoint << std::endl;
@@ -127,40 +126,39 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint64_
 
         // Download blocks
         this->DownloadBlocks(downloadedBlocks, chunkStartPoint, chunkEndPoint);
+
         // Create processable chunk
         std::vector<Json::Value> chunk(downloadedBlocks.begin(), downloadedBlocks.end());
 
-                    // Max number of threads have been met
-        while (processingThreads.size() >= MAX_CONCURRENT_THREADS)
+        // Max number of threads have been met
+        while (processingThreads.size() >= Syncer::MAX_CONCURRENT_THREADS)
         {
-            bool isAtleastOneThreadJoined = false;
-            while (!isAtleastOneThreadJoined)
+            bool joinedAtLeastOneThread = false;
+
+            while (!joinedAtLeastOneThread)
             {
                 for (auto &thread : processingThreads)
                 {
                     if (thread.joinable())
                     {
                         thread.join();
-                        isAtleastOneThreadJoined = true;
-                        break;
+                        joinedAtLeastOneThread = true;
+                        break; // Exit the for loop as soon as one thread is joined
                     }
                 }
 
-                if (!isAtleastOneThreadJoined)
+                // If no joinable thread was found, wait for the specified cool-off time
+                if (!joinedAtLeastOneThread)
                 {
-                    std::cout << "Couldn't find a joinable thread. Waiting for " << joinableThreadCoolOffTimeInSeconds << " seconds." << std::endl;
-                    std::this_thread::sleep_for(std::chrono::seconds(joinableThreadCoolOffTimeInSeconds));
-                }
-                else
-                {
-                    std::cout << "Erasing processing thread. Size is now: " << processingThreads.size() << std::endl;
-                    this->CheckAndDeleteJoinableProcessingThreads(processingThreads);
+                    std::this_thread::sleep_for(std::chrono::seconds(Syncer::JOINABLE_THREAD_COOL_OFF_TIME_IN_SECONDS));
                 }
             }
+
+            this->CheckAndDeleteJoinableProcessingThreads(processingThreads);
         }
 
         // Launch a new thread for the current chunk
-        std::cout << "Processing new block chunk starting at range: " << chunkStartPoint << std::endl;
+        std::cout << "Processing new chunk of blocks starting at range: " << chunkStartPoint << std::endl;
         processingThreads.emplace_back(
             [this](bool a, const std::vector<Json::Value> &b, uint64_t c, uint64_t d, uint64_t e)
             {
@@ -168,15 +166,13 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint64_
             },
             isTrackingCheckpointForChunks, chunk, chunkStartPoint, chunkEndPoint, isExistingCheckpoint ? start : chunkStartPoint);
 
-
-
         // All blocks processed
         downloadedBlocks.clear();
+
         // Update chunkStartPoint to the next chunk
         chunkStartPoint = chunkEndPoint + 1;
 
         // Update chunkEndPoint for the next chunk, capped at 'end'
-        // chunkEndPoint = std::min(chunkStartPoint + Syncer::CHUNK_SIZE - 1, static_cast<size_t>(end));
         if (end - chunkStartPoint + 1 >= Syncer::CHUNK_SIZE)
         {
             chunkEndPoint = chunkStartPoint + Syncer::CHUNK_SIZE - 1;
@@ -191,16 +187,8 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint64_
     }
 
     // All blocks have been synced since last sync() call.
-    // Wait for all remaining threads to complete
-    for (auto &thread : processingThreads)
-    {
-
-        if (thread.joinable())
-        {
-            std::cout << "Found joinable thread.. Waiting for threads to finish" << std::endl;
-            thread.join();
-        }
-    }
+    // Wait for all remaining threads to finish to complete the syncing operation.
+    this->JoinAndWaitForAllThreadsToFinish(processingThreads);
 
     // Erase the rest of the processing threads
     this->CheckAndDeleteJoinableProcessingThreads(processingThreads);
@@ -212,11 +200,22 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint64_
     }
 }
 
+void Syncer::JoinAndWaitForAllThreadsToFinish(std::vector<std::thread> &threads)
+{
+    for (auto &thread : threads)
+    {
+        if (thread.joinable())
+        {
+            thread.join();
+        }
+    }
+}
+
 void Syncer::StartSyncLoop()
 {
-    const std::chrono::seconds syncInterval(1);
+    const std::chrono::minutes syncInterval(60);
 
-    while (run_syncing)
+    while (this->run_syncing)
     {
         std::lock_guard<std::mutex> syncLock(cs_sync);
 
@@ -227,39 +226,49 @@ void Syncer::StartSyncLoop()
             this->Sync();
         }
 
-        std::cout << "Sleeping before checking sync thread: " << syncInterval.count() << " seconds" << std::flush;
         std::this_thread::sleep_for(syncInterval);
     }
 }
 
-void Syncer::InvokePeersListRefreshLoop()
+void Syncer::InvokePeersListRefreshLoop() noexcept
 {
-    while (this->run_peer_monitoring) {
-        try {
-            std::lock_guard<std::mutex> lock(httpClientMutex);
-            Json::Value peer_info = this->httpClient.getpeerinfo();
-            this->database.StorePeers(peer_info);
-        } catch(const std::exception& e) {
-            std::cout << e.what() << std::endl;
-        }
+    while (this->run_peer_monitoring)
+    {
+        std::lock_guard<std::mutex> lock(httpClientMutex);
+        Json::Value peer_info = this->httpClient.getpeerinfo();
+        this->database.StorePeers(peer_info);
 
         std::this_thread::sleep_for(std::chrono::hours(24));
     }
 }
 
-void Syncer::InvokeChainInfoRefreshLoop()
+void Syncer::InvokeChainInfoRefreshLoop() noexcept
 {
-    while (this->run_chain_info_monitoring) {
-        try {
-            std::lock_guard<std::mutex> lock(httpClientMutex);
-            Json::Value chain_info = this->httpClient.getblockchaininfo();
-            std::cout << chain_info.toStyledString() << std::endl;
-            this->database.StoreChainInfo(chain_info);
-        } catch(const std::exception& e) {
-            std::cout << e.what() << std::endl; 
-        }
+    while (this->run_chain_info_monitoring)
+    {
+        std::lock_guard<std::mutex> lock(httpClientMutex);
+        Json::Value chain_info = this->httpClient.getblockchaininfo();
+        this->database.StoreChainInfo(chain_info);
 
-        std::this_thread::sleep_for(std::chrono::minutes(30)); 
+        std::this_thread::sleep_for(std::chrono::minutes(30));
+    }
+}
+
+void Syncer::SyncUnfinishedCheckpoints()
+{
+    std::stack<Database::Checkpoint> checkpoints = this->database.GetUnfinishedCheckpoints();
+    Database::Checkpoint currentCheckpoint;
+
+    std::cout << "Checkpoints to complete: " << checkpoints.size() << std::endl;
+    while (checkpoints.size() > 0)
+    {
+        currentCheckpoint = checkpoints.top();
+        std::cout << "Processing a checkpoint by range: "
+                  << "(" << currentCheckpoint.chunkStartHeight << "," << currentCheckpoint.chunkEndHeight << "," << currentCheckpoint.lastCheckpoint << ")" << std::endl;
+        checkpoints.pop();
+
+        // Sync the checkpoint by the range of its start to end point
+        this->DoConcurrentSyncOnRange(true, currentCheckpoint.chunkStartHeight, currentCheckpoint.chunkEndHeight);
     }
 }
 
@@ -274,17 +283,7 @@ void Syncer::Sync()
         // this->SyncMissedBlocks(missedBlocks, SyncDirection::Reverse);
 
         // Sync unfinished checkpoints
-        std::stack<Database::Checkpoint> checkpoints = this->database.GetUnfinishedCheckpoints();
-        Database::Checkpoint currentCheckpoint;
-        std::cout << "Checkpoints to complete: " << checkpoints.size() << std::endl;
-        while (checkpoints.size() > 0)
-        {
-            currentCheckpoint = checkpoints.top();
-            std::cout << "Processing a checkpoint by range: "
-                      << "(" << currentCheckpoint.chunkStartHeight << "," << currentCheckpoint.chunkEndHeight << "," << currentCheckpoint.lastCheckpoint << ")" << std::endl;
-            checkpoints.pop();
-            this->DoConcurrentSyncOnRange(true, currentCheckpoint.chunkStartHeight, currentCheckpoint.chunkEndHeight);
-        }
+        this->SyncUnfinishedCheckpoints();
 
         // Sync new blocks
         this->LoadTotalBlockCountFromChain();
@@ -301,7 +300,6 @@ void Syncer::Sync()
         {
             std::cout << "Syncing path: Syncing by range." << std::endl;
             uint startRangeChunk = this->latestBlockSynced == 0 ? this->latestBlockSynced : this->latestBlockSynced + 1;
-            uint joinableThreadCoolOffTimeInSeconds = 10;
 
             this->DoConcurrentSyncOnRange(true, startRangeChunk, this->latestBlockCount);
         }
@@ -341,17 +339,16 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
     std::cout << "Downloading blocks from heights of size: " << heightsToDownload.size() << std::endl;
     Json::Value getblockParams;
     Json::Value blockResultSerialized;
-    bool success{false};
 
     std::lock_guard<std::mutex> lock(httpClientMutex);
     size_t i{0};
 
     std::cout << "Size of heights to download: " << std::endl;
     while (i < heightsToDownload.size())
-    { 
+    {
         getblockParams.append(Json::Value(std::to_string(heightsToDownload.at(i))));
         getblockParams.append(Json::Value(2));
-        
+
         try
         {
             blockResultSerialized = httpClient.CallMethod("getblock", getblockParams);
@@ -379,7 +376,7 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
             std::cout << "Block height: " << i << std::endl;
             std::cout << e.what() << std::endl;
             ++i;
-                        getblockParams.clear();
+            getblockParams.clear();
             continue;
         }
 
@@ -390,7 +387,7 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
 void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t startRange, uint64_t endRange)
 {
     std::cout << "Downloading blocks starting at " << startRange << " and ending at " << endRange << std::endl;
-    
+
     std::lock_guard<std::mutex> lock(httpClientMutex);
     Json::Value getblockParams{Json::nullValue};
     Json::Value blockResultSerialized{Json::nullValue};
@@ -442,17 +439,11 @@ void Syncer::LoadTotalBlockCountFromChain()
     try
     {
         std::lock_guard<std::mutex> lock(httpClientMutex);
-        Json::Value p = Json::nullValue;
-        Json::Value response = httpClient.getblockcount();
-        this->latestBlockCount = response.asLargestUInt();
-        std::cout << "Count is: " << this->latestBlockCount << std::endl;
+        this->latestBlockCount = httpClient.getblockcount().asLargestUInt();
+        std::cout << "Most recent chain block count: " << this->latestBlockCount << std::endl;
     }
     catch (jsonrpc::JsonRpcException &e)
     {
-        std::cout << e.what() << std::endl;
-        std::cout << e.GetCode() << std::endl;
-        std::cout << e.GetMessage() << std::endl;
-        std::cout << e.GetData().asString() << std::endl;
         if (std::string(e.what()).find("Loading block index") != std::string::npos)
         {
             while (std::string(e.what()).find("Loading block index") != std::string::npos && std::string(e.what()).find("Verifying blocks") != std::string::npos)
