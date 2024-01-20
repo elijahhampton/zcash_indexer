@@ -30,7 +30,7 @@ public:
     ThreadPool(const ThreadPool &pool) = delete;
     ~ThreadPool();
 
-    void Restart();
+    void RefreshThreadPool();
     void TaskCompleted();
 
     template <typename F, typename... Args>

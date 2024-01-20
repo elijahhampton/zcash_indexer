@@ -3,11 +3,6 @@
 #include <string>
 #include <iostream>
 #include <memory>
-#include <boost/serialization/nvp.hpp>
-#include <boost/multiprecision/cpp_dec_float.hpp>
-
-
-using boost::multiprecision::cpp_dec_float_50;
 
 std::mutex Database::databaseConnectionCloseMutex;
 std::condition_variable Database::databaseConnectionCloseCondition;
@@ -251,8 +246,6 @@ std::optional<Database::Checkpoint> Database::GetCheckpoint(signed int chunkStar
             "FROM checkpoints WHERE chunk_start_height = " +
             transaction.quote(chunkStartHeight));
 
-        transaction.commit();
-
         if (result.empty())
         {
             this->ReleaseConnection(std::move(conn));
@@ -334,7 +327,6 @@ std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints()
 
         // Execute query
         pqxx::result result = transaction.exec(query);
-        transaction.commit();
 
         // Process the sql rows for each checkpoint
         std::stack<Checkpoint> checkpoints;
@@ -801,7 +793,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
     conn->unprepare(insert_transparent_outputs_prepare);
 }
 
-unsigned int Database::GetSyncedBlockCountFromDB()
+uint64_t Database::GetSyncedBlockCountFromDB()
 {
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
 
@@ -819,7 +811,6 @@ unsigned int Database::GetSyncedBlockCountFromDB()
             syncedBlockCount = 0;
         }
 
-        tx.commit();
         this->ReleaseConnection(std::move(conn));
         return syncedBlockCount;
     }
@@ -841,17 +832,17 @@ void Database::StorePeers(const Json::Value &peer_info)
     try
     {
 
-        pqxx::work tx{*connection.get()};
-
-        // Clear existing peers
-        tx.exec("TRUNCATE TABLE peerinfo;");
-        tx.commit();
-
         if (peer_info.isNull())
         {
             this->ReleaseConnection(std::move(connection));
             return;
         }
+
+        pqxx::work tx{*connection.get()};
+
+        // Clear existing peers
+        tx.exec("TRUNCATE TABLE peerinfo;");
+        tx.commit();
 
         connection->prepare("insert_peer_info", "INSERT INTO peerinfo (addr, lastsend, lastrecv, conntime, subver, synced_blocks) VALUES ($1, $2, $3, $4, $5, $6)");
 
@@ -871,8 +862,6 @@ void Database::StorePeers(const Json::Value &peer_info)
     {
         this->ReleaseConnection(std::move(connection));
     }
-
-
 }
 
 void Database::StoreChainInfo(const Json::Value& chain_info)

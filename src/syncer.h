@@ -26,6 +26,8 @@
 
 #include <jsonrpccpp/common/jsonparser.h>
 
+#include "config.h"
+
 #ifndef SYNCER_H
 #define SYNCER_H
 
@@ -35,6 +37,7 @@ class Syncer
     friend class Controller;
 
 private:
+    static constexpr uint8_t JOINABLE_THREAD_COOL_OFF_TIME_IN_SECONDS = 10;
     CustomClient &httpClient;
     Database &database;
 
@@ -44,8 +47,8 @@ private:
     std::mutex httpClientMutex;
     std::mutex cs_sync;
 
-    unsigned int latestBlockSynced;
-    unsigned int latestBlockCount;
+    uint64_t latestBlockSynced;
+    uint64_t latestBlockCount;
 
     std::atomic<bool> run_syncing{true};
     std::atomic<bool> run_peer_monitoring{true};
@@ -72,12 +75,18 @@ private:
      */
     void DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint64_t start, uint64_t end);
     void StartSyncLoop();
+
+    /**
+     * @brief Sync unfinished checkpoints
+    */
+    void SyncUnfinishedCheckpoints(std::stack<Database::Checkpoint>&);
+
     /**
      * @brief Syncs blocks based on a list of heights.
      *
      * @param chunkToProcess A list of block heights to process.
      */
-    void DoConcurrentSyncOnChunk(std::vector<size_t> chunkToProcess);
+    void DoConcurrentSyncOnChunk(const std::vector<size_t> &chunkToProcess);
 
     /**
      * @brief Downloads blockchain blocks based on a list of block heights.
@@ -132,12 +141,12 @@ private:
      *
      * Periodically queries the blockchain network for peer information and stores this data in the database. The loop runs continuously until signalled to stop.
      */
-    void InvokePeersListRefreshLoop();
+    void InvokePeersListRefreshLoop() noexcept;
 
     /**
      * @brief Continuously monitors chain info
     */
-    void InvokeChainInfoRefreshLoop();
+    void InvokeChainInfoRefreshLoop() noexcept;
 
     /**
      * @brief Signals to stop the peer monitoring loop.
@@ -161,7 +170,9 @@ private:
     void Stop();
 
 public:
-    static uint8_t BLOCK_DOWNLOAD_VERBOSE_LEVEL;
+    static constexpr uint8_t BLOCK_DOWNLOAD_VERBOSE_LEVEL = 2;
+    static const uint8_t MAX_CONCURRENT_THREADS;
+    
     /**
      * @brief Static variable representing the size of each chunk of blocks to be synchronized.
      */

@@ -16,8 +16,8 @@
 #include <queue>
 #include "config.h"
 
-size_t Syncer::CHUNK_SIZE = 200;
-uint8_t Syncer::BLOCK_DOWNLOAD_VERBOSE_LEVEL = 2;
+size_t Syncer::CHUNK_SIZE = std::stoi(Config::getBlockChunkProcessingSize());
+const uint8_t Syncer::MAX_CONCURRENT_THREADS = std::thread::hardware_concurrency();
 
 Syncer::Syncer(CustomClient &httpClientIn, Database &databaseIn) : httpClient(httpClientIn), database(databaseIn), latestBlockSynced{0}, latestBlockCount{0}, isSyncing{false}, worker_pool{ThreadPool()}
 {
@@ -33,13 +33,13 @@ void Syncer::CheckAndDeleteJoinableProcessingThreads(std::vector<std::thread> &p
                             processingThreads.end());
 }
 
-void Syncer::DoConcurrentSyncOnChunk(std::vector<size_t> chunkToProcess)
+void Syncer::DoConcurrentSyncOnChunk(const std::vector<size_t> &chunkToProcess)
 {
     std::vector<Json::Value> downloadedBlocks;
-
     this->DownloadBlocksFromHeights(downloadedBlocks, chunkToProcess);
 
     // Create processable chunk
+
     std::vector<Json::Value> chunk(downloadedBlocks.begin(), downloadedBlocks.end());
 
     // Launch a new thread for the current chunk
@@ -93,10 +93,9 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint64_
 
         // Download blocks
         this->DownloadBlocks(downloadedBlocks, chunkStartPoint, chunkEndPoint);
+
         // Create processable chunk
         std::vector<Json::Value> chunk(downloadedBlocks.begin(), downloadedBlocks.end());
-
-
 
         // Launch a new thread for the current chunk
         this->worker_pool.SubmitTask([this](bool a, const std::vector<Json::Value> &b, uint64_t c, uint64_t d, uint64_t e)
@@ -108,6 +107,7 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint64_
 
         // All blocks processed
         downloadedBlocks.clear();
+
         // Update chunkStartPoint to the next chunk
         chunkStartPoint = chunkEndPoint + 1;
 
@@ -125,15 +125,13 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint64_
 
 void Syncer::StartSyncLoop()
 {
-    const std::chrono::seconds syncInterval(30);
+    const std::chrono::minutes syncInterval(30);
 
-    while (run_syncing)
+    while (this->run_syncing)
     {
         std::lock_guard<std::mutex> syncLock(cs_sync);
 
-        bool shouldSync = this->ShouldSyncWallet();
-
-        if (shouldSync)
+        if (this->ShouldSyncWallet())
         {
             this->Sync();
         }
@@ -142,7 +140,7 @@ void Syncer::StartSyncLoop()
     }
 }
 
-void Syncer::InvokePeersListRefreshLoop()
+void Syncer::InvokePeersListRefreshLoop() noexcept
 {
     while (this->run_peer_monitoring)
     {
@@ -161,7 +159,7 @@ void Syncer::InvokePeersListRefreshLoop()
     }
 }
 
-void Syncer::InvokeChainInfoRefreshLoop()
+void Syncer::InvokeChainInfoRefreshLoop() noexcept
 {
     while (this->run_chain_info_monitoring)
     {
@@ -180,17 +178,10 @@ void Syncer::InvokeChainInfoRefreshLoop()
     }
 }
 
-void Syncer::Sync()
-{
-    try
-    {
-        this->isSyncing = true;
-        this->worker_pool.Restart();
+void Syncer::SyncUnfinishedCheckpoints(std::stack<Database::Checkpoint>& checkpoints) {
 
         // Sync unfinished checkpoints
-        std::stack<Database::Checkpoint> checkpoints = this->database.GetUnfinishedCheckpoints();
         Database::Checkpoint currentCheckpoint;
-        auto numCheckpointsBeforeProcessing = checkpoints.size();
 
         while (!checkpoints.empty())
         {
@@ -203,12 +194,21 @@ void Syncer::Sync()
 
             checkpoints.pop();
         }
+}
 
-        // Wait until all checkpoints are complete
-        if (numCheckpointsBeforeProcessing > 0) {
-            this->worker_pool.Restart();
+void Syncer::Sync()
+{
+    try
+    {
+        this->isSyncing = true;
+        this->worker_pool.RefreshThreadPool();
+
+        std::stack<Database::Checkpoint> checkpoints = this->database.GetUnfinishedCheckpoints();
+        if (!checkpoints.empty()) {
+            this->SyncUnfinishedCheckpoints(checkpoints);
+            this->worker_pool.RefreshThreadPool();
         }
-
+        
         // Sync new blocks
         this->LoadTotalBlockCountFromChain();
         this->LoadSyncedBlockCountFromDB();
@@ -226,22 +226,21 @@ void Syncer::Sync()
             this->DoConcurrentSyncOnRange(true, startRangeChunk, this->latestBlockCount);
         }
         else
-        {
-            // for loop from latest block synced to latest block count
-            // Sync until latestBlockCOunt + 1 to include the latest
+        { 
             std::vector<size_t> heights;
-            for (size_t i = this->latestBlockSynced + 1; i < this->latestBlockCount + 1; i++)
+            size_t totalBlocksToSync = this->latestBlockCount - this->latestBlockSynced;
+            heights.reserve(totalBlocksToSync);
+
+            for (size_t i = 1; i <= totalBlocksToSync; i++)
             {
-                // add to vector each height
-                heights.push_back(i);
+                heights.push_back(this->latestBlockSynced + i);
             }
 
             this->DoConcurrentSyncOnChunk(heights);
         }
 
-        this->worker_pool.Restart();
+        this->worker_pool.RefreshThreadPool();
         this->isSyncing = false;
-        this->LoadSyncedBlockCountFromDB();
     }
     catch (std::exception &e)
     {
@@ -259,7 +258,6 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
 
     Json::Value getblockParams;
     Json::Value blockResultSerialized;
-    bool success{false};
 
     std::lock_guard<std::mutex> lock(httpClientMutex);
     size_t i{0};
@@ -304,7 +302,6 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
 
 void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t startRange, uint64_t endRange)
 {
-
     std::lock_guard<std::mutex> lock(httpClientMutex);
     Json::Value getblockParams{Json::nullValue};
     Json::Value blockResultSerialized{Json::nullValue};
@@ -352,9 +349,7 @@ void Syncer::LoadTotalBlockCountFromChain()
     try
     {
         std::lock_guard<std::mutex> lock(httpClientMutex);
-        Json::Value p = Json::nullValue;
-        Json::Value response = httpClient.getblockcount();
-        this->latestBlockCount = response.asLargestUInt();
+        this->latestBlockCount = httpClient.getblockcount().asLargestUInt();
     }
     catch (jsonrpc::JsonRpcException &e)
     {

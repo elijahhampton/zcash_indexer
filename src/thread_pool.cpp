@@ -20,7 +20,7 @@ void ThreadPool::TaskCompleted()
     cv_task.notify_one();
 }
 
-void ThreadPool::Restart()
+void ThreadPool::RefreshThreadPool()
 {
     if (!this->io_service.stopped())
     {
