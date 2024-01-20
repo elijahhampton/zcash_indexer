@@ -11,10 +11,12 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     clang \
     libpqxx-dev \
+    libboost-all-dev \
     libboost-system-dev \
     net-tools \
     libboost-filesystem-dev \
     libjsonrpccpp-dev \
+    libboost-thread-dev \ 
     libboost-serialization-dev \
     postgresql \
     postgresql-contrib \

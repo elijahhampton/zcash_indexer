@@ -7,6 +7,7 @@
 
 #include "database.h"
 #include "httpclient.h"
+#include "thread_pool.h"
 #include <iostream>
 #include <string>
 #include <optional>
@@ -39,6 +40,8 @@ private:
     static constexpr uint8_t JOINABLE_THREAD_COOL_OFF_TIME_IN_SECONDS = 10;
     CustomClient &httpClient;
     Database &database;
+
+    ThreadPool worker_pool;
 
     std::mutex db_mutex;
     std::mutex httpClientMutex;
@@ -76,7 +79,7 @@ private:
     /**
      * @brief Sync unfinished checkpoints
     */
-    void SyncUnfinishedCheckpoints();
+    void SyncUnfinishedCheckpoints(std::stack<Database::Checkpoint>&);
 
     /**
      * @brief Syncs blocks based on a list of heights.
@@ -106,12 +109,6 @@ private:
      * @param processingThreads A reference to a vector of threads that will be checked and cleaned.
      */
     void CheckAndDeleteJoinableProcessingThreads(std::vector<std::thread> &processingThreads);
-
-    /*
-     * @brief Join and wait for threads to finish.
-     * @param threads std::vector<std::thread> list of threads to join
-    */
-    void JoinAndWaitForAllThreadsToFinish(std::vector<std::thread>&);
 
     /**
      * @brief Downloads a range of blocks from the blockchain.
@@ -222,6 +219,9 @@ public:
      * @param databaseIn Reference to the Database object for data storage and retrieval.
      */
     Syncer(CustomClient &httpClientIn, Database &databaseIn);
+
+    Syncer(const Syncer& syncer) = delete;
+    Syncer operator=(const Syncer& syncer) = delete;
 
     /**
      * @brief Destructor for the Syncer class.
