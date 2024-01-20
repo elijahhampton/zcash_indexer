@@ -20,8 +20,6 @@ private:
     std::atomic<uint8_t> active_task{0};
 
     void InitNewWork();
-    void End();
-
 public:
     static const uint8_t MAX_HARDWARE_THREADS;
 
@@ -32,6 +30,7 @@ public:
 
     void RefreshThreadPool();
     void TaskCompleted();
+    void End();
 
     template <typename F, typename... Args>
     void SubmitTask(F &&f, Args &&...args)
