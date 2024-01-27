@@ -6,23 +6,16 @@ services:
       context: .
       dockerfile: Dockerfile
     user: root
-    cap_add:
-      - NET_ADMIN
-    depends_on:
-      zcash_zcashd: 
-        condition: service_started
-      postgres:
-        condition: service_started
     environment:
-      DB_HOST: postgres
+      DB_HOST: 34.135.99.204 #host.docker.internal
       DB_PORT: "5432"
       DB_NAME: postgres
       DB_USER: postgres
-      DB_PASSWORD: ${DB_PASSWORD}
-      RPC_URL: zcash_zcashd:8232
+      DB_PASSWORD: Q9X638hs2Y78 #${DB_PASSWORD}
+      RPC_URL: host.docker.internal:8232
       RPC_USERNAME: user
-      RPC_PASSWORD: ${RPC_PASSWORD}
-      BLOCK_CHUNK_PROCESSING_SIZE: ${BLOCK_CHUNK_PROCESSING_SIZE}
+      RPC_PASSWORD: password #${RPC_PASSWORD}
+      BLOCK_CHUNK_PROCESSING_SIZE: 1000 #${BLOCK_CHUNK_PROCESSING_SIZE}
       ALLOW_MULTIPLE_THREADS: true
 
   zcash_zcashd:
@@ -32,9 +25,9 @@ services:
       - zcash_data:/srv/zcashd/.zcash
       - zcash_params:/srv/zcashd/.zcash-params
     environment:
-      ZCASHD_NETWORK: "mainnet" 
-      ZCASHD_RPCPASSWORD: ${ZCASHD_RPCPASSWORD}
-      ZCASHD_RPCUSER: "user"
+      ZCASHD_NETWORK: "testnet" 
+      ZCASHD_RPCPASSWORD: password #${ZCASHD_RPCPASSWORD}
+      ZCASHD_RPCUSER: user
       ZCASHD_ALLOWIP: "0.0.0.0/0"
     ports:
       - "8232:8232"
@@ -50,7 +43,7 @@ services:
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: password #${DB_PASSWORD}
     ports:
       - "5432:5432"
 

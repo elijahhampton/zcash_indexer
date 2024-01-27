@@ -13,9 +13,9 @@ class Controller
 {
     
 private:
-    std::unique_ptr<CustomClient> rpcClient;
-    std::unique_ptr<Syncer> syncer;
-    Database database; 
+    std::unique_ptr<CustomClient> rpcClient{nullptr};
+    std::unique_ptr<Syncer> syncer{nullptr};
+    std::unique_ptr<Database> database{nullptr};
 
     std::thread syncing_thread;
     std::thread peer_monitoring_thread;
@@ -23,7 +23,13 @@ private:
 
 
 public:
-    Controller();
+    Controller(const Controller&) = delete;
+    Controller operator=(const Controller&) = delete;
+
+    Controller(const Controller&&) = delete;
+    Controller operator=(const Controller&&) = delete;
+
+    Controller(std::unique_ptr<CustomClient>, std::unique_ptr<Syncer>, std::unique_ptr<Database>);
     ~Controller() noexcept;
     void InitAndSetup();
     void Shutdown();

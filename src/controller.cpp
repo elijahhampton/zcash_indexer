@@ -9,9 +9,8 @@
 #include <mutex>
 #include "config.h"
 
-Controller::Controller()
-try : rpcClient(std::make_unique<CustomClient>(Config::getRpcUrl(), Config::getRpcUsername(), Config::getRpcPassword())),
-    syncer(std::make_unique<Syncer>(*rpcClient, database))
+Controller::Controller(std::unique_ptr<CustomClient> rpcClientIn, std::unique_ptr<Syncer> syncerIn)
+try : rpcClient(rpcClientIn), syncer(syncerIn)
 {
     const std::string connection_string =
         "dbname=" + Config::getDatabaseName() +
@@ -24,6 +23,14 @@ try : rpcClient(std::make_unique<CustomClient>(Config::getRpcUrl(), Config::getR
     unsigned int poolSize = std::thread::hardware_concurrency() * 5;
     if (!this->database.Connect(poolSize, connection_string))
     {
+        throw std::runtime_error("Database failed to open.");
+    }
+
+    if (this->rpcClient == nullptr) {
+        throw std::runtime_error("Database failed to open.");
+    }
+
+    if (this->syncer == nullptr) {
         throw std::runtime_error("Database failed to open.");
     }
 }
@@ -67,7 +74,7 @@ void Controller::StartMonitoringPeers()
 
 void Controller::StartMonitoringChainInfo()
 {
-    chain_info_monitoring_thread  = std::thread{&Syncer::InvokeChainInfoRefreshLoop, this->syncer.get()};
+    chain_info_monitoring_thread = std::thread{&Syncer::InvokeChainInfoRefreshLoop, this->syncer.get()};
 }
 
 void Controller::Shutdown()
@@ -87,7 +94,7 @@ void Controller::JoinJoinableSyncingOperations()
         peer_monitoring_thread.join();
     }
 
-    if (chain_info_monitoring_thread.joinable()) 
+    if (chain_info_monitoring_thread.joinable())
     {
         chain_info_monitoring_thread.join();
     }
@@ -95,14 +102,16 @@ void Controller::JoinJoinableSyncingOperations()
 
 int main()
 {
-    try
-        Controller controller;
-        controller.InitAndSetup();
-        controller.StartSyncLoop();
-        controller.StartMonitoringPeers();
-        controller.StartMonitoringChainInfo();
-        controller.JoinJoinableSyncingOperations();
-        controller.Shutdown();
+    Database database;
+    CustomClient rpcClient(Config::getRpcUrl(), Config::getRpcUsername(), Config::getRpcPassword());
+    Syncer syncer(rpcClient, database);
+    Controller controller(rpcClient, syncer, database);
+    controller.InitAndSetup();
+    controller.StartSyncLoop();
+    controller.StartMonitoringPeers();
+    controller.StartMonitoringChainInfo();
+    controller.JoinJoinableSyncingOperations();
+    controller.Shutdown();
 
     return 0;
 }
