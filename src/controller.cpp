@@ -20,24 +20,22 @@ try : rpcClient(rpcClientIn), syncer(syncerIn)
         " port=" + Config::getDatabasePort();
 
     // Five connections are assigned to each hardware thread
-    unsigned int poolSize = std::thread::hardware_concurrency() * 5;
-    if (!this->database.Connect(poolSize, connection_string))
-    {
-        throw std::runtime_error("Database failed to open.");
-    }
+    size_t poolSize = std::thread::hardware_concurrency() * 5;
+    this->database.Connect(poolSize, connection_string)
 
     if (this->rpcClient == nullptr) {
-        throw std::runtime_error("Database failed to open.");
+        throw std::runtime_error("RPC client failed to initialize.");
     }
 
     if (this->syncer == nullptr) {
-        throw std::runtime_error("Database failed to open.");
+        throw std::runtime_error("Syncer failed to initialize.");
     }
 }
 catch (const std::exception &e)
 {
-    std::cerr << "Error: " << e.what() << std::endl;
-    throw;
+    std::stringstream err_stream;
+    err_stream << "Controller uninitialized successfully with error: " << e.what() << std::endl;
+    throw std::runtime_error(err_stream.str());
 }
 
 Controller::~Controller()
@@ -49,7 +47,7 @@ void Controller::InitAndSetup()
 {
     try
     {
-        this->database.CreateTables();
+        this->database->CreateTables();
     }
     catch (const std::exception &e)
     {
@@ -105,7 +103,7 @@ int main()
     Database database;
     CustomClient rpcClient(Config::getRpcUrl(), Config::getRpcUsername(), Config::getRpcPassword());
     Syncer syncer(rpcClient, database);
-    Controller controller(rpcClient, syncer, database);
+    Controller controller(rpcClient, syncer);
     controller.InitAndSetup();
     controller.StartSyncLoop();
     controller.StartMonitoringPeers();

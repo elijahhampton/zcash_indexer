@@ -4,9 +4,6 @@
 #include <iostream>
 #include <memory>
 
-std::mutex Database::databaseConnectionCloseMutex;
-std::condition_variable Database::databaseConnectionCloseCondition;
-
 const uint64_t Database::InvalidHeight;
 
 Database::~Database()
@@ -14,11 +11,10 @@ Database::~Database()
     this->ShutdownConnections();
 }
 
-bool Database::Connect(size_t poolSize, const std::string &conn_str)
+void Database::Connect(size_t poolSize, const std::string &conn_str)
 {
     if (this->is_connected) {
-        std::cerr << "Database is already connected. Exiting function Database::Connect()" << std::endl;
-        return false;
+        return;
     }
 
     try
@@ -26,7 +22,7 @@ bool Database::Connect(size_t poolSize, const std::string &conn_str)
         for (size_t i = 0; i < poolSize; ++i)
         {
             auto conn = std::make_unique<pqxx::connection>(conn_str);
-            connectionPool.push(std::move(conn));
+            connection_pool.push(std::move(conn));
         }
 
         this->is_connected = true;
@@ -48,12 +44,12 @@ std::unique_ptr<pqxx::connection> Database::GetConnection()
 {
     try
     {
-        std::unique_lock<std::mutex> lock(poolMutex);
-        poolCondition.wait(lock, [this]
-                           { return !connectionPool.empty(); });
+        std::unique_lock<std::mutex> lock(cs_connection_pool);
+        cv_connection_pool.wait(lock, [this]
+                           { return !connection_pool.empty(); });
 
-        auto conn = std::move(connectionPool.front());
-        connectionPool.pop();
+        auto conn = std::move(connection_pool.front());
+        connection_pool.pop();
 
         if (conn == nullptr || !conn->is_open())
         {
@@ -79,9 +75,9 @@ void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn)
             return;
         }
 
-        std::lock_guard<std::mutex> lock(poolMutex);
-        connectionPool.push(std::move(conn));
-        poolCondition.notify_one();
+        std::lock_guard<std::mutex> lock(cs_connection_pool);
+        connection_pool.push(std::move(conn));
+        cv_connection_pool.notify_one();
     }
     catch (const std::exception &e)
     {

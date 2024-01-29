@@ -27,11 +27,9 @@ friend class Controller;
 friend class Syncer;
 
 private:
-    static std::mutex databaseConnectionCloseMutex; // TODO: Move to private and convert controller into friend
-    static std::condition_variable databaseConnectionCloseCondition; // TODO: Move to private and convert controller into friend
-    std::queue<std::unique_ptr<pqxx::connection>> connectionPool;
-    std::mutex poolMutex;
-    std::condition_variable poolCondition;
+    std::queue<std::unique_ptr<pqxx::connection>> connection_pool;
+    std::mutex cs_connection_pool;
+    std::condition_variable cv_connection_pool;
 
     bool is_connected{false};
     bool is_database_setup{false};
@@ -87,14 +85,13 @@ private:
      */
     bool isWhole();
 
-        /**
+    /**
      * Establishes connections to the database.
      *
      * @param poolSize The number of connections to establish in the connection pool.
      * @param connection_string The connection string used to connect to the database.
-     * @return True if connections are successfully established, false otherwise.
      */
-    bool Connect(size_t poolSize, const std::string& connection_string);
+    void Connect(size_t poolSize, const std::string& connection_string);
 
     /**
      * Creates necessary tables in the database.
@@ -162,6 +159,12 @@ public:
      * Destructs the Database object and releases resources.
      */
     ~Database();
+
+    Database(const Database& rhs) = delete;
+    Database operator=(const Database& rhs) = delete;
+
+    Database(const Database&& rhs) = delete;
+    Database operator=(const Database&& rhs) = delete;
 
     uint64_t GetSyncedBlockCountFromDB();
     std::optional<pqxx::row> GetTransactionById(const std::string& txid);

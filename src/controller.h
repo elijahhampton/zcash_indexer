@@ -40,4 +40,4 @@ public:
     void JoinJoinableSyncingOperations();
 };
 
-#endif
+#endif // CONTROLLER_H
