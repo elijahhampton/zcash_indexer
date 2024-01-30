@@ -220,8 +220,8 @@ public:
      */
     Syncer(CustomClient &httpClientIn, Database &databaseIn);
 
-    Syncer(const Syncer& syncer) = delete;
-    Syncer operator=(const Syncer& syncer) = delete;
+    Syncer(const Syncer& syncer) = default;
+    Syncer& operator=(const Syncer& syncer) = default;
 
     /**
      * @brief Destructor for the Syncer class.

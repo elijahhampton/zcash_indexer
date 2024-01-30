@@ -160,11 +160,11 @@ public:
      */
     ~Database();
 
-    Database(const Database& rhs) = delete;
-    Database operator=(const Database& rhs) = delete;
+    Database(const Database& rhs) = default;
+    Database& operator=(const Database& rhs) = default;
 
-    Database(const Database&& rhs) = delete;
-    Database operator=(const Database&& rhs) = delete;
+    Database(Database&& rhs) = default;
+    Database& operator=(Database&& rhs) = default;
 
     uint64_t GetSyncedBlockCountFromDB();
     std::optional<pqxx::row> GetTransactionById(const std::string& txid);

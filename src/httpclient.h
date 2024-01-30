@@ -15,6 +15,9 @@ private:
     std::string password;
 
 public:
+    CustomClient(const CustomClient& rhs) = delete;
+    CustomClient& operator=(const CustomClient& rhs) = delete;
+
     CustomClient(const std::string &url, const std::string &username, const std::string &password);
     ~CustomClient() noexcept = default;
     Json::Value CallMethod(const std::string &method, const Json::Value &params);

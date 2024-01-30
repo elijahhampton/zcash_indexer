@@ -221,12 +221,13 @@ void Syncer::Sync()
         }
         else if (numNewBlocks >= CHUNK_SIZE)
         {
-
+            std::cout << "Syncing path: SyncOnRange" << std::endl;
             uint64_t startRangeChunk = this->latestBlockSynced == 0 ? this->latestBlockSynced : this->latestBlockSynced + 1;  
             this->DoConcurrentSyncOnRange(true, startRangeChunk, this->latestBlockCount);
         }
         else
         { 
+            std::cout << "Syncing path: SyncOnChunk" << std::endl;
             std::vector<size_t> heights;
             size_t totalBlocksToSync = this->latestBlockCount - this->latestBlockSynced;
             heights.reserve(totalBlocksToSync);

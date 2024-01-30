@@ -9,8 +9,8 @@
 #include <mutex>
 #include "config.h"
 
-Controller::Controller(std::unique_ptr<CustomClient> rpcClientIn, std::unique_ptr<Syncer> syncerIn)
-try : rpcClient(rpcClientIn), syncer(syncerIn)
+Controller::Controller(std::unique_ptr<CustomClient> rpcClientIn, std::unique_ptr<Syncer> syncerIn,  std::unique_ptr<Database> databaseIn) : 
+rpcClient(std::move(rpcClientIn)), syncer(std::move(syncerIn)), database(std::move(databaseIn))
 {
     const std::string connection_string =
         "dbname=" + Config::getDatabaseName() +
@@ -21,7 +21,7 @@ try : rpcClient(rpcClientIn), syncer(syncerIn)
 
     // Five connections are assigned to each hardware thread
     size_t poolSize = std::thread::hardware_concurrency() * 5;
-    this->database.Connect(poolSize, connection_string)
+    this->database->Connect(poolSize, connection_string);
 
     if (this->rpcClient == nullptr) {
         throw std::runtime_error("RPC client failed to initialize.");
@@ -30,12 +30,6 @@ try : rpcClient(rpcClientIn), syncer(syncerIn)
     if (this->syncer == nullptr) {
         throw std::runtime_error("Syncer failed to initialize.");
     }
-}
-catch (const std::exception &e)
-{
-    std::stringstream err_stream;
-    err_stream << "Controller uninitialized successfully with error: " << e.what() << std::endl;
-    throw std::runtime_error(err_stream.str());
 }
 
 Controller::~Controller()
@@ -51,7 +45,7 @@ void Controller::InitAndSetup()
     }
     catch (const std::exception &e)
     {
-        throw std::runtime_error("Database failed to create tables.");
+        throw std::runtime_error(e.what());
     }
 }
 
@@ -100,10 +94,12 @@ void Controller::JoinJoinableSyncingOperations()
 
 int main()
 {
-    Database database;
-    CustomClient rpcClient(Config::getRpcUrl(), Config::getRpcUsername(), Config::getRpcPassword());
-    Syncer syncer(rpcClient, database);
-    Controller controller(rpcClient, syncer);
+    auto database = std::make_unique<Database>();
+    auto rpcClient = std::make_unique<CustomClient>(Config::getRpcUrl(), Config::getRpcUsername(), Config::getRpcPassword());
+    auto syncer = std::make_unique<Syncer>(*rpcClient, *database);
+    
+   
+    Controller controller(std::move(rpcClient), std::move(syncer), std::move(database));
     controller.InitAndSetup();
     controller.StartSyncLoop();
     controller.StartMonitoringPeers();
