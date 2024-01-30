@@ -39,7 +39,7 @@ void Database::Connect(size_t poolSize, const std::string &conn_str)
     }
 }
 
-std::unique_ptr<pqxx::connection> Database::GetConnection()
+std::unique_ptr<pqxx::connection> Database::GetConnection() const
 {
     try
     {
@@ -65,7 +65,7 @@ std::unique_ptr<pqxx::connection> Database::GetConnection()
     }
 }
 
-void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn)
+void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn) const 
 {
     try
     {
@@ -84,7 +84,7 @@ void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn)
     }
 }
 
-void Database::ShutdownConnections()
+void Database::ShutdownConnections() const
 {
     std::lock_guard<std::mutex> lock(this->cs_connection_pool);
     if (!this->connection_pool.empty())
@@ -205,7 +205,7 @@ void Database::CreateTables()
     }
 }
 
-void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProcessingChunkHeight)
+void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProcessingChunkHeight) const
 {
 
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
@@ -235,7 +235,7 @@ void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProc
     }
 }
 
-std::optional<Database::Checkpoint> Database::GetCheckpoint(signed int chunkStartHeight)
+std::optional<Database::Checkpoint> Database::GetCheckpoint(signed int chunkStartHeight) const
 {
     if (chunkStartHeight == Database::InvalidHeight)
     {
@@ -288,7 +288,7 @@ std::optional<Database::Checkpoint> Database::GetCheckpoint(signed int chunkStar
     }
 }
 
-void Database::CreateCheckpointIfNonExistent(size_t chunkStartHeight, size_t chunkEndHeight)
+void Database::CreateCheckpointIfNonExistent(size_t chunkStartHeight, size_t chunkEndHeight) const
 {
     try
     {
@@ -317,7 +317,7 @@ void Database::CreateCheckpointIfNonExistent(size_t chunkStartHeight, size_t chu
     }
 }
 
-std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints()
+std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints() const
 {
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
 
@@ -349,28 +349,29 @@ std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints()
 
         this->ReleaseConnection(std::move(conn));
 
-        // Return the found checkpoints
         return checkpoints;
     }
     catch (const pqxx::sql_error &e)
     {
+        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
     }
     catch (const std::exception &e)
     {
+        std::cout << e.what() << std::endl;
         this->ReleaseConnection(std::move(conn));
     }
 }
 
-void Database::AddMissedBlock(size_t blockHeight)
+void Database::AddMissedBlock(size_t blockHeight) const
 {
 }
 
-void Database::RemoveMissedBlock(size_t blockHeight)
+void Database::RemoveMissedBlock(size_t blockHeight) const
 {
 }
 
-void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight)
+void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight) const
 {
     std::optional<Database::Checkpoint> checkpointOpt = this->GetCheckpoint(trueRangeStartHeight);
     bool checkpointExist = checkpointOpt.has_value();
@@ -540,7 +541,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
     this->ReleaseConnection(std::move(conn));
 }
 
-std::optional<pqxx::row> Database::GetTransactionById(const std::string &txid)
+std::optional<pqxx::row> Database::GetTransactionById(const std::string &txid) const
 {
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
 
@@ -559,7 +560,7 @@ std::optional<pqxx::row> Database::GetTransactionById(const std::string &txid)
     return std::nullopt;
 }
 
-std::optional<pqxx::row> Database::GetOutputByTransactionIdAndIndex(const std::string &txid, uint64_t v_out_index)
+std::optional<pqxx::row> Database::GetOutputByTransactionIdAndIndex(const std::string &txid, uint64_t v_out_index) const
 {
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
     pqxx::work tx(*conn.get());
@@ -576,7 +577,7 @@ std::optional<pqxx::row> Database::GetOutputByTransactionIdAndIndex(const std::s
     return std::nullopt;
 }
 
-void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr<pqxx::connection> &conn, pqxx::work &blockTransaction)
+void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr<pqxx::connection> &conn, pqxx::work &blockTransaction) const
 {
     if (!block["tx"].isArray())
     {
@@ -800,7 +801,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
     conn->unprepare(insert_transparent_outputs_prepare);
 }
 
-uint64_t Database::GetSyncedBlockCountFromDB()
+uint64_t Database::GetSyncedBlockCountFromDB() const
 {
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
 
@@ -833,7 +834,7 @@ uint64_t Database::GetSyncedBlockCountFromDB()
     }
 }
 
-void Database::StorePeers(const Json::Value &peer_info)
+void Database::StorePeers(const Json::Value &peer_info) const
 {
     std::unique_ptr<pqxx::connection> connection = this->GetConnection();
     try
@@ -871,7 +872,7 @@ void Database::StorePeers(const Json::Value &peer_info)
     }
 }
 
-void Database::StoreChainInfo(const Json::Value &chain_info)
+void Database::StoreChainInfo(const Json::Value &chain_info) const
 {
 
     if (!chain_info.isNull())
