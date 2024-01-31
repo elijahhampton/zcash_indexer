@@ -23,11 +23,11 @@ private:
 
 
 public:
-    Controller(const Controller&) = delete;
-    Controller operator=(const Controller&) = delete;
+    Controller(const Controller&) noexcept = default;
+    Controller& operator=(const Controller&) noexcept = default;
 
-    Controller(const Controller&&) = delete;
-    Controller operator=(const Controller&&) = delete;
+    Controller(Controller&&) noexcept = default;
+    Controller& operator=(Controller&&) noexcept = default;
 
     Controller(std::unique_ptr<CustomClient>, std::unique_ptr<Syncer>, std::unique_ptr<Database>);
     ~Controller() noexcept;

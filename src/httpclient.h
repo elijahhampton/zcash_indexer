@@ -15,11 +15,15 @@ private:
     std::string password;
 
 public:
-    CustomClient(const CustomClient& rhs) = delete;
-    CustomClient& operator=(const CustomClient& rhs) = delete;
+    CustomClient(const CustomClient& rhs) noexcept = default;
+    CustomClient& operator=(const CustomClient& rhs) noexcept = default;
+
+    CustomClient(CustomClient&& rhs) noexcept = default;
+    CustomClient& operator=(CustomClient&& rhs) noexcept = default;
 
     CustomClient(const std::string &url, const std::string &username, const std::string &password);
     ~CustomClient() noexcept = default;
+
     Json::Value CallMethod(const std::string &method, const Json::Value &params);
     Json::Value getinfo();
     Json::Value getblockchaininfo();

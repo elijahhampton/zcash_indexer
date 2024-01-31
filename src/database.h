@@ -152,11 +152,11 @@ public:
      */
     ~Database();
 
-    Database(const Database& rhs) = default;
-    Database& operator=(const Database& rhs) = default;
+    Database(const Database& rhs) noexcept = default;
+    Database& operator=(const Database& rhs) noexcept = default;
 
-    Database(Database&& rhs) = default;
-    Database& operator=(Database&& rhs) = default;
+    Database(Database&& rhs) noexcept = default;
+    Database& operator=(Database&& rhs) noexcept = default;
 
     uint64_t GetSyncedBlockCountFromDB() const;
     std::optional<pqxx::row> GetTransactionById(const std::string& txid) const;
