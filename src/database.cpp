@@ -424,10 +424,8 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
 
     for (const auto &item : chunk)
     {
-        // Check for null Json::Value in block chunk
         if (item == Json::nullValue)
         {
-            // Mark as missed and add to missed blocks
             this->AddMissedBlock(item["height"].asLargestInt());
             ++chunkCurrentProcessingIndex;
             continue;
@@ -435,7 +433,6 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
 
         try
         {
-            // Parse Block Header
             const std::string nonce = item["nonce"].asString();
             const int version = item["version"].asInt();
             const std::string prevBlockHash = item["previousblockhash"].asString();
@@ -535,7 +532,6 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         }
         if (isTrackingCheckpointForChunk)
         {
-            // TODO: If the checkpont doesn't exist the update chunk checkpoint function shouldn't update it.. throw error
             auto now = std::chrono::steady_clock::now();
             auto elapsedTimeSinceLastCheckpoint = now - timeSinceLastCheckpoint;
 
