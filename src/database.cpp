@@ -438,7 +438,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
             double total_block_public_output{0};
             double total_block_public_input{0};
             std::optional<pqxx::row> vin_transaction_look_buffer;
-            for (const Json::Value tx : transactions)
+            for (const Json::Value &tx : transactions)
             {
                 for (const Json::Value &voutItem : tx["vout"])
                 {
