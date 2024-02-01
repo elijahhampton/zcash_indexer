@@ -33,7 +33,7 @@ LIBS = -ljsonrpccpp-common \
        -lpqxx \
        -lcrypto \
        -lboost_filesystem \
-       -lboost_thread \
+       -lboost_thread-mt \
        -lboost_system \
        -lpthread -ldl -lm
 
