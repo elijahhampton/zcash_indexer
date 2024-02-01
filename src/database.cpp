@@ -362,12 +362,14 @@ std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints() const
         std::stack<Checkpoint> checkpoints;
         Checkpoint currentCheckpoint;
 
-        for (auto row : result)
-        {
-            currentCheckpoint.chunkStartHeight = row["chunk_start_height"].as<size_t>();
-            currentCheckpoint.chunkEndHeight = row["chunk_end_height"].as<size_t>();
-            currentCheckpoint.lastCheckpoint = row["last_checkpoint"].as<size_t>();
+        pqxx::result::const_iterator row_iterator = result.cbegin();
+        while (row_iterator != result.cend()) {
+            currentCheckpoint.chunkStartHeight =  row_iterator["chunk_start_height"].as<size_t>();
+            currentCheckpoint.chunkEndHeight = row_iterator["chunk_end_height"].as<size_t>();
+            currentCheckpoint.lastCheckpoint = row_iterator["last_checkpoint"].as<size_t>();
             checkpoints.push(currentCheckpoint);
+
+            ++row_iterator;
         }
 
         this->ReleaseConnection(std::move(conn));
@@ -376,13 +378,19 @@ std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints() const
     }
     catch (const pqxx::sql_error &e)
     {
-        std::cout << e.what() << std::endl;
+        __ERROR__(e.what());
         this->ReleaseConnection(std::move(conn));
+
+        std::stack<Database::Checkpoint> empty_stack;
+        return empty_stack;
     }
     catch (const std::exception &e)
     {
-        std::cout << e.what() << std::endl;
+        __ERROR__(e.what());
         this->ReleaseConnection(std::move(conn));
+
+        std::stack<Database::Checkpoint> empty_stack;
+        return empty_stack;
     }
 }
 
@@ -472,7 +480,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
             double total_block_public_output{0};
             double total_block_public_input{0};
             std::optional<pqxx::row> vin_transaction_look_buffer;
-            for (const Json::Value tx : transactions)
+            for (const Json::Value &tx : transactions)
             {
                 for (const Json::Value &voutItem : tx["vout"])
                 {
@@ -509,20 +517,13 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         }
         catch (const pqxx::sql_error &e)
         {
-            std::cout << e.what() << std::endl;
-            if (e.sqlstate().find("duplicate key value violates unique constraint") != std::string::npos)
-            {
-            }
-            else
-            {
-            }
-
+            __ERROR__(e.what());
             this->AddMissedBlock(item["height"].asLargestInt());
             shouldCommitBlock = false;
         }
         catch (const std::exception &e)
         {
-            std::cout << e.what() << std::endl;
+            __ERROR__(e.what());
             this->AddMissedBlock(item["height"].asLargestInt());
             shouldCommitBlock = false;
         }

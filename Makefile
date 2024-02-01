@@ -7,7 +7,7 @@ IMAGE = $(GCR_HOST)/$(PROJECT_ID)/$(REPO_NAME):$(IMAGE_TAG)
 
 CXX = clang++
 
-CXXFLAGS = -std=c++17 -Wall -Wextra -pedantic -g
+CXXFLAGS = -std=c++17 -Wall -Wextra -Wno-defaulted-function-deleted -pedantic -g
 
 INCLUDES = -I/usr/local/include \
            -I/usr/local/opt/openssl/include \

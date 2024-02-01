@@ -3,6 +3,7 @@
 
 #include "jsonrpccpp/client.h"
 #include "jsonrpccpp/client/connectors/httpclient.h"
+#include "logger.h"
 
 class CustomClient
 {
