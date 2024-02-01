@@ -160,7 +160,6 @@ public:
     Database& operator=(Database&& rhs) noexcept = default;
 
     uint64_t GetSyncedBlockCountFromDB() const;
-    std::optional<pqxx::row> GetTransactionById(const std::string& txid) const;
     std::optional<pqxx::row> GetOutputByTransactionIdAndIndex(const std::string& txid, uint64_t v_out_index) const;
     std::stack<Database::Checkpoint> GetUnfinishedCheckpoints() const;
     std::optional<Database::Checkpoint> GetCheckpoint(signed int chunkStartHeight) const;

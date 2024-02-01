@@ -568,25 +568,6 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
     this->ReleaseConnection(std::move(conn));
 }
 
-std::optional<pqxx::row> Database::GetTransactionById(const std::string &txid) const
-{
-    std::unique_ptr<pqxx::connection> conn = this->GetConnection();
-
-    pqxx::work tx(*conn.get());
-
-    pqxx::result result = tx.exec_params(
-        "SELECT * FROM transactions WHERE tx_id = $1", txid);
-
-    this->ReleaseConnection(std::move(conn));
-
-    if (!result.empty())
-    {
-        return result[0];
-    }
-
-    return std::nullopt;
-}
-
 std::optional<pqxx::row> Database::GetOutputByTransactionIdAndIndex(const std::string &txid, uint64_t v_out_index) const
 {
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
