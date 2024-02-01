@@ -125,7 +125,7 @@ void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint64_
 
 void Syncer::StartSyncLoop()
 {
-    const std::chrono::minutes syncInterval(30);
+    const std::chrono::hours syncInterval(6);
 
     while (this->run_syncing)
     {
@@ -174,7 +174,7 @@ void Syncer::InvokeChainInfoRefreshLoop() noexcept
             std::cout << e.what() << std::endl;
         }
 
-        std::this_thread::sleep_for(std::chrono::minutes(30));
+        std::this_thread::sleep_for(std::chrono::hours(6));
     }
 }
 
