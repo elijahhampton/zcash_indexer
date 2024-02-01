@@ -1,4 +1,5 @@
 #include "controller.h"
+#include "logger.h"
 
 #include <vector>
 #include <string>
@@ -19,9 +20,13 @@ rpcClient(std::move(rpcClientIn)), syncer(std::move(syncerIn)), database(std::mo
         " host=" + Config::getDatabaseHost() +
         " port=" + Config::getDatabasePort();
 
+    __DEBUG__(connection_string.c_str());
+
     // Five connections are assigned to each hardware thread
     size_t poolSize = std::thread::hardware_concurrency() * 5;
     this->database->Connect(poolSize, connection_string);
+
+    __DEBUG__(("Initializing database with pool size: " + std::to_string(poolSize)).c_str());
 
     if (this->rpcClient == nullptr) {
         throw std::runtime_error("RPC client failed to initialize.");

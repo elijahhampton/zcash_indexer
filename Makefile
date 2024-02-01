@@ -31,7 +31,7 @@ LIBS = -ljsonrpccpp-common \
        -lboost_system \
        -lpthread -ldl -lm
 
-CXX_SRCS = src/syncer.cpp src/thread_pool.cpp src/controller.cpp src/database.cpp src/httpclient.cpp
+CXX_SRCS = src/syncer.cpp src/logger.cpp src/thread_pool.cpp src/controller.cpp src/database.cpp src/httpclient.cpp
 
 CXX_OBJS = $(CXX_SRCS:.cpp=.o)
 

@@ -16,6 +16,7 @@
 #include <jsonrpccpp/common/jsonparser.h>
 
 #include "httpclient.h"
+#include "logger.h"
 #include "controller.h"
 
 #ifndef DATABASE_H
@@ -152,8 +153,8 @@ public:
      */
     ~Database();
 
-    Database(const Database& rhs) noexcept = default;
-    Database& operator=(const Database& rhs) noexcept = default;
+    Database(const Database& rhs) noexcept = delete;
+    Database& operator=(const Database& rhs) noexcept = delete;
 
     Database(Database&& rhs) noexcept = default;
     Database& operator=(Database&& rhs) noexcept = default;

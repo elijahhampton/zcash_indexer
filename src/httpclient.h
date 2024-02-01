@@ -15,8 +15,8 @@ private:
     std::string password;
 
 public:
-    CustomClient(const CustomClient& rhs) noexcept = default;
-    CustomClient& operator=(const CustomClient& rhs) noexcept = default;
+    CustomClient(const CustomClient& rhs) noexcept = delete;
+    CustomClient& operator=(const CustomClient& rhs) noexcept = delete;
 
     CustomClient(CustomClient&& rhs) noexcept = default;
     CustomClient& operator=(CustomClient&& rhs) noexcept = default;

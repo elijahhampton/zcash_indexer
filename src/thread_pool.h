@@ -24,8 +24,8 @@ public:
     static const uint8_t MAX_HARDWARE_THREADS;
 
     ThreadPool();
-    ThreadPool& operator=(const ThreadPool &pool) noexcept = default;
-    ThreadPool(const ThreadPool &pool) noexcept = default;
+    ThreadPool& operator=(const ThreadPool &pool) noexcept = delete;
+    ThreadPool(const ThreadPool &pool) noexcept = delete;
 
     ThreadPool& operator=(ThreadPool &&pool) noexcept  = default;
     ThreadPool(ThreadPool &&pool) noexcept = default;

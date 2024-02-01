@@ -4,6 +4,8 @@
 #include "database.h"
 #include "syncer.h"
 #include "httpclient.h"
+
+
 #include <memory>
 #include <iostream>
 #include <string>
@@ -23,8 +25,8 @@ private:
 
 
 public:
-    Controller(const Controller&) noexcept = default;
-    Controller& operator=(const Controller&) noexcept = default;
+    Controller(const Controller&) noexcept = delete;
+    Controller& operator=(const Controller&) noexcept = delete;
 
     Controller(Controller&&) noexcept = default;
     Controller& operator=(Controller&&) noexcept = default;

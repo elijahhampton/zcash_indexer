@@ -13,8 +13,11 @@ Database::~Database()
 
 void Database::Connect(size_t poolSize, const std::string &conn_str)
 {
+    __INFO__("Attempting to connect to database and initialize connection pool.");
+
     if (this->is_connected)
     {
+        __INFO__("Database is already connected.");
         return;
     }
 
@@ -35,12 +38,14 @@ void Database::Connect(size_t poolSize, const std::string &conn_str)
 
         std::stringstream err_stream;
         err_stream << "Error occurred while creating connection pool: " << e.what() << std::endl;
+        __ERROR__(err_stream.str().c_str());
         throw std::runtime_error(err_stream.str());
     }
 }
 
 std::unique_ptr<pqxx::connection> Database::GetConnection() const
 {
+    __INFO__("GetConnection()");
     try
     {
         std::unique_lock<std::mutex> lock(cs_connection_pool);
@@ -52,6 +57,7 @@ std::unique_ptr<pqxx::connection> Database::GetConnection() const
 
         if (conn == nullptr || !conn->is_open())
         {
+            __ERROR__("------Invalid connection: connection is null or not open.--------");
             throw std::runtime_error("------Invalid connection: connection is null or not open.--------");
         }
 
@@ -59,14 +65,19 @@ std::unique_ptr<pqxx::connection> Database::GetConnection() const
     }
     catch (std::exception &e)
     {
+        __ERROR__(e.what());
+
         std::stringstream err_stream;
         err_stream << e.what() << std::endl;
+
         throw std::runtime_error(e.what());
     }
 }
 
-void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn) const 
+void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn) const
 {
+    __INFO__("ReleaseConnection()");
+
     try
     {
         if (conn == nullptr || !conn->is_open())
@@ -80,6 +91,8 @@ void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn) const
     }
     catch (const std::exception &e)
     {
+        __ERROR__(e.what());
+
         throw std::runtime_error(e.what());
     }
 }
@@ -177,11 +190,15 @@ void Database::CreateTables()
                 // SQL Error Codes: https://www.postgresql.org/docs/15/errcodes-appendix.html
 
                 if (e.sqlstate() == "42P07")
-                { // DUPLICATE_TABLE::Table already exists
-                    std::cerr << "Table already exists: " << e.what() << std::endl;
+                {
+                    __DEBUG__(e.what()); // DUPLICATE_TABLE::Table already exists
                 }
                 else
                 {
+                    __DEBUG__(e.sqlstate().c_str());
+                    __DEBUG__(e.what());
+                    __DEBUG__("Aborting create table operations.");
+
                     tx.abort();
                     this->is_database_setup = false;
                     throw;
@@ -224,14 +241,18 @@ void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProc
         transaction.exec_prepared("update_checkpoint", chunkStartHeight, currentProcessingChunkHeight);
         transaction.commit();
 
+        std::string message = "Updating checkpoint from start value " + std::to_string(chunkStartHeight) + " to " + std::to_string(currentProcessingChunkHeight);
+        __DEBUG__(message.c_str());
+
         conn->unprepare("update_checkpoint");
         this->ReleaseConnection(std::move(conn));
     }
     catch (std::exception &e)
     {
-        throw;
-        std::cerr << e.what() << std::endl;
+        __ERROR__(e.what());
         this->ReleaseConnection(std::move(conn));
+
+        throw;
     }
 }
 
@@ -275,14 +296,13 @@ std::optional<Database::Checkpoint> Database::GetCheckpoint(signed int chunkStar
     }
     catch (const pqxx::sql_error &e)
     {
-        std::cerr << "SQL error: " << e.what() << std::endl;
-        std::cerr << "Query was: " << e.query() << std::endl;
+        __ERROR__(e.what());
         this->ReleaseConnection(std::move(conn));
         throw;
     }
     catch (const std::exception &e)
     {
-        std::cerr << "Error: " << e.what() << std::endl;
+        __ERROR__(e.what());
         this->ReleaseConnection(std::move(conn));
         throw;
     }
@@ -308,12 +328,15 @@ void Database::CreateCheckpointIfNonExistent(size_t chunkStartHeight, size_t chu
         transaction.exec_prepared("insert_checkpoint", chunkStartHeight, chunkEndHeight, chunkStartHeight);
         transaction.commit();
 
+        __DEBUG__(("Checkpoint created at height " + std::to_string(chunkStartHeight) + " to " + std::to_string(chunkEndHeight)).c_str());
+
         conn->unprepare("insert_checkpoint");
 
         this->ReleaseConnection(std::move(conn));
     }
     catch (std::exception &e)
     {
+        __ERROR__(e.what());
     }
 }
 
@@ -365,14 +388,17 @@ std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints() const
 
 void Database::AddMissedBlock(size_t blockHeight) const
 {
+    __DEBUG__(("Missed block at height " + std::to_string(blockHeight)).c_str());
 }
 
 void Database::RemoveMissedBlock(size_t blockHeight) const
 {
+    __DEBUG__(("Recovered block at height " + std::to_string(blockHeight)).c_str());
 }
 
 void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight) const
 {
+    __INFO__("Syncing path: StoreChunk()");
     std::optional<Database::Checkpoint> checkpointOpt = this->GetCheckpoint(trueRangeStartHeight);
     bool checkpointExist = checkpointOpt.has_value();
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
@@ -579,6 +605,8 @@ std::optional<pqxx::row> Database::GetOutputByTransactionIdAndIndex(const std::s
 
 void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr<pqxx::connection> &conn, pqxx::work &blockTransaction) const
 {
+    __INFO__(("Storing transactions for height: " + block["height"].asString()).c_str());
+
     if (!block["tx"].isArray())
     {
         throw std::runtime_error("Database::StoreTransactions: Invalid input for transactions. Value is not an array.");
@@ -762,10 +790,12 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                         }
                         catch (const pqxx::sql_error &e)
                         {
+                            __ERROR__(e.what());
                             throw;
                         }
                         catch (const std::exception &e)
                         {
+                            __ERROR__(e.what());
                             throw;
                         }
                     }
@@ -778,6 +808,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
             }
             catch (const pqxx::sql_error &e)
             {
+                __ERROR__(e.what());
                 conn->unprepare(insert_transactions_prepare);
                 conn->unprepare(insert_transparent_inputs_prepare);
                 conn->unprepare(insert_transparent_outputs_prepare);
@@ -785,6 +816,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
             }
             catch (const std::exception &e)
             {
+                __ERROR__(e.what());
                 conn->unprepare(insert_transactions_prepare);
                 conn->unprepare(insert_transparent_inputs_prepare);
                 conn->unprepare(insert_transparent_outputs_prepare);
@@ -819,16 +851,20 @@ uint64_t Database::GetSyncedBlockCountFromDB() const
             syncedBlockCount = 0;
         }
 
+        __DEBUG__(("New synced block count " + std::to_string(syncedBlockCount)).c_str());
+
         this->ReleaseConnection(std::move(conn));
         return syncedBlockCount;
     }
     catch (std::exception &e)
     {
+        __ERROR__(e.what());
         this->ReleaseConnection(std::move(conn));
         return 0;
     }
     catch (pqxx::unexpected_rows &e)
     {
+        __ERROR__(e.what());
         this->ReleaseConnection(std::move(conn));
         return 0;
     }
@@ -868,6 +904,7 @@ void Database::StorePeers(const Json::Value &peer_info) const
     }
     catch (const std::exception &e)
     {
+        __ERROR__(e.what());
         this->ReleaseConnection(std::move(connection));
     }
 }
@@ -906,6 +943,7 @@ void Database::StoreChainInfo(const Json::Value &chain_info) const
         }
         catch (const std::exception &e)
         {
+            __ERROR__(e.what());
             delete insert_chain_info_query;
             this->ReleaseConnection(std::move(conn));
         }
