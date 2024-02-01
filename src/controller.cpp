@@ -95,7 +95,6 @@ void Controller::JoinJoinableSyncingOperations()
 
 int main()
 {
-    try
         Controller controller;
         controller.InitAndSetup();
         controller.StartSyncLoop();

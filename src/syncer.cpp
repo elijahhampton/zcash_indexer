@@ -17,7 +17,7 @@
 #include "config.h"
 
 size_t Syncer::CHUNK_SIZE = std::stoi(Config::getBlockChunkProcessingSize());
-const uint8_t Syncer::MAX_CONCURRENT_THREADS = std::thread::hardware_concurrency();
+const uint8_t Syncer::MAX_CONCURRENT_THREADS = 6; //std::thread::hardware_concurrency();
 
 Syncer::Syncer(CustomClient &httpClientIn, Database &databaseIn) : httpClient(httpClientIn), database(databaseIn), latestBlockSynced{0}, latestBlockCount{0}, isSyncing{false}, worker_pool{ThreadPool()}
 {
