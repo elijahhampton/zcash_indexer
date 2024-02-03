@@ -7,6 +7,7 @@
 
 #include "database.h"
 #include "httpclient.h"
+#include "logger.h"
 #include "thread_pool.h"
 #include <iostream>
 #include <string>
@@ -99,16 +100,6 @@ private:
      * @param heightsToDownload A vector containing the heights of the blocks to be downloaded.
      */
     void DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlocks, std::vector<size_t> heightsToDownload);
-
-    /**
-     * @brief Removes threads that are no longer joinable from a vector of threads.
-     *
-     * This function checks each thread in the provided vector to see if it is joinable. If a thread is not joinable,
-     * it is removed from the vector. This is typically used to clean up thread resources after they have completed their execution.
-     *
-     * @param processingThreads A reference to a vector of threads that will be checked and cleaned.
-     */
-    void CheckAndDeleteJoinableProcessingThreads(std::vector<std::thread> &processingThreads);
 
     /**
      * @brief Downloads a range of blocks from the blockchain.
@@ -222,8 +213,11 @@ public:
      */
     Syncer(CustomClient &httpClientIn, Database &databaseIn);
 
-    Syncer(const Syncer& syncer) = delete;
-    Syncer operator=(const Syncer& syncer) = delete;
+    Syncer(const Syncer& syncer) noexcept = delete;
+    Syncer& operator=(const Syncer& syncer) noexcept = delete;
+
+    Syncer(Syncer&& syncer) noexcept = default;
+    Syncer& operator=(Syncer&& syncer) noexcept = default;
 
     /**
      * @brief Destructor for the Syncer class.

@@ -16,6 +16,7 @@
 #include <jsonrpccpp/common/jsonparser.h>
 
 #include "httpclient.h"
+#include "logger.h"
 #include "controller.h"
 
 #ifndef DATABASE_H
@@ -27,11 +28,9 @@ friend class Controller;
 friend class Syncer;
 
 private:
-    static std::mutex databaseConnectionCloseMutex; // TODO: Move to private and convert controller into friend
-    static std::condition_variable databaseConnectionCloseCondition; // TODO: Move to private and convert controller into friend
-    std::queue<std::unique_ptr<pqxx::connection>> connectionPool;
-    std::mutex poolMutex;
-    std::condition_variable poolCondition;
+    std::queue<std::unique_ptr<pqxx::connection>> mutable connection_pool;
+    std::mutex mutable cs_connection_pool;
+    std::condition_variable mutable cv_connection_pool;
 
     bool is_connected{false};
     bool is_database_setup{false};
@@ -40,14 +39,14 @@ private:
      * Shuts down all connections in the connection pool.
      * Closes each connection and clears the pool.
      */
-    void ShutdownConnections();
+    void ShutdownConnections() const;
 
     /**
      * Releases a database connection back to the connection pool.
      *
      * @param conn A unique pointer to the pqxx connection to be released.
      */
-    void ReleaseConnection(std::unique_ptr<pqxx::connection> conn);
+    void ReleaseConnection(std::unique_ptr<pqxx::connection> conn) const;
 
     /**
      * Retrieves a database connection from the connection pool.
@@ -55,7 +54,7 @@ private:
      *
      * @return A unique pointer to the pqxx connection.
      */
-    std::unique_ptr<pqxx::connection> GetConnection();
+    std::unique_ptr<pqxx::connection> GetConnection() const;
 
     /**
      * Updates the checkpoint for a specific chunk.
@@ -63,38 +62,29 @@ private:
      * @param chunkStartHeight The starting height of the chunk.
      * @param checkpointUpdateValue The value to update the checkpoint to.
      */
-    void UpdateChunkCheckpoint(size_t chunkStartHeight, size_t checkpointUpdateValue);
+    void UpdateChunkCheckpoint(size_t chunkStartHeight, size_t checkpointUpdateValue) const;
 
     /**
      * Adds a block height to a list or set of missed blocks.
      *
      * @param blockHeight The height of the block that was missed.
      */
-    void AddMissedBlock(size_t blockHeight);
+    void AddMissedBlock(size_t blockHeight) const;
 
     /**
      * Removes a block height from the list or set of missed blocks.
      *
      * @param blockHeight The height of the block to remove from missed blocks.
      */
-    void RemoveMissedBlock(size_t blockHeight);
+    void RemoveMissedBlock(size_t blockHeight) const;
 
     /**
-     * Checks if DB contains all entries from block 0 to chain height based height
-     * 
-     * @note This does not mean the DB is correct. It only gives a theoretical view of all blocks that have been synced since 0.
-     * @return True if the entire range is complete, false otherwise.
-     */
-    bool isWhole();
-
-        /**
      * Establishes connections to the database.
      *
      * @param poolSize The number of connections to establish in the connection pool.
      * @param connection_string The connection string used to connect to the database.
-     * @return True if connections are successfully established, false otherwise.
      */
-    bool Connect(size_t poolSize, const std::string& connection_string);
+    void Connect(size_t poolSize, const std::string& connection_string);
 
     /**
      * Creates necessary tables in the database.
@@ -109,7 +99,7 @@ private:
      * @param chunkStartHeight The starting height of the chunk.
      * @param chunkEndHeight The ending height of the chunk.
      */
-    void CreateCheckpointIfNonExistent(size_t chunkStartHeight, size_t chunkEndHeight);
+    void CreateCheckpointIfNonExistent(size_t chunkStartHeight, size_t chunkEndHeight) const;
 
     /**
      * Loads and processes chunks that have not been processed yet.
@@ -125,7 +115,7 @@ private:
      * @param chunkEndHeight The ending height of the chunk.
      * @param trueRangeStartHeight The true starting height of the range. Defaults to 0 if not provided.
      */
-    void StoreChunk(const std::vector<Json::Value> &chunk, uint64_t  chunkStartHeight, uint64_t  chunkEndHeight, uint64_t trueRangeStartHeight = Database::InvalidHeight);
+    void StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, uint64_t  chunkStartHeight, uint64_t  chunkEndHeight, uint64_t trueRangeStartHeight = Database::InvalidHeight) const;
 
     /**
      * Stores transactions related to a block in the database.
@@ -134,16 +124,16 @@ private:
      * @param conn A unique pointer to the database connection.
      * @param blockTransaction The transaction object for the block.
      */
-    void StoreTransactions(const Json::Value& block, const std::unique_ptr<pqxx::connection>& conn, pqxx::work &blockTransaction);
+    void StoreTransactions(const Json::Value& block, const std::unique_ptr<pqxx::connection>& conn, pqxx::work &blockTransaction) const;
 
     /**
      * Stores connected peers to the peersinfo table.
      * 
      * @param peer_info JSON array containing information about connected peers.
     */
-    void StorePeers(const Json::Value& peer_info);
+    void StorePeers(const Json::Value& peer_info) const;
 
-    void StoreChainInfo(const Json::Value& chain_info);
+    void StoreChainInfo(const Json::Value& chain_info) const;
     
 public:
  static const uint64_t InvalidHeight{std::numeric_limits<uint64_t>::max()};
@@ -163,11 +153,16 @@ public:
      */
     ~Database();
 
-    uint64_t GetSyncedBlockCountFromDB();
-    std::optional<pqxx::row> GetTransactionById(const std::string& txid);
-    std::optional<pqxx::row> GetOutputByTransactionIdAndIndex(const std::string& txid, uint64_t v_out_index);
-    std::stack<Database::Checkpoint> GetUnfinishedCheckpoints();
-    std::optional<Database::Checkpoint> GetCheckpoint(signed int chunkStartHeight);
+    Database(const Database& rhs) noexcept = delete;
+    Database& operator=(const Database& rhs) noexcept = delete;
+
+    Database(Database&& rhs) noexcept = default;
+    Database& operator=(Database&& rhs) noexcept = default;
+
+    uint64_t GetSyncedBlockCountFromDB() const;
+    std::optional<pqxx::row> GetOutputByTransactionIdAndIndex(const std::string& txid, uint64_t v_out_index) const;
+    std::stack<Database::Checkpoint> GetUnfinishedCheckpoints() const;
+    std::optional<Database::Checkpoint> GetCheckpoint(signed int chunkStartHeight) const;
 };
 
 #endif // DATABASE_H

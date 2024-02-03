@@ -53,16 +53,18 @@ std::string CustomClient::base64Encode(const std::string &data) {
 CustomClient::CustomClient(const std::string &url, const std::string &username, const std::string &password)
     : httpClient(url), rpcClient(httpClient, jsonrpc::JSONRPC_CLIENT_V1)
 {
-    // Encode username and password in base64 for the Authorization header
     std::string authHeader = "Basic " + this->base64Encode(username + ":" + password);
-    std::cout << "Authorization: " << authHeader << std::endl;
-    std::cout << "User: " << username << std::endl;
-    std::cout << "Password: " << password << std::endl;
+   
+    __DEBUG__(("Initializing HTTP client with username " + username).c_str());
+    __DEBUG__(("Initializing HTTP client with password " + password).c_str());
+    __DEBUG__(("Initializing HTTP Authorization header " + authHeader).c_str());
+
     httpClient.AddHeader("Authorization", authHeader);
 }
 
 Json::Value CustomClient::CallMethod(const std::string &method, const Json::Value &params)
 {
+    __DEBUG__(("Calling HTTP method: " + method).c_str());
     return rpcClient.CallMethod(method, params);
 }
 

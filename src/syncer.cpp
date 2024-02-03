@@ -17,21 +17,13 @@
 #include "config.h"
 
 size_t Syncer::CHUNK_SIZE = std::stoi(Config::getBlockChunkProcessingSize());
-const uint8_t Syncer::MAX_CONCURRENT_THREADS = 6; // std::thread::hardware_concurrency();
+const uint8_t Syncer::MAX_CONCURRENT_THREADS = std::thread::hardware_concurrency();
 
 Syncer::Syncer(CustomClient &httpClientIn, Database &databaseIn) : httpClient(httpClientIn), database(databaseIn), latestBlockSynced{0}, latestBlockCount{0}, isSyncing{false}, worker_pool{ThreadPool()}
 {
 }
 
 Syncer::~Syncer() noexcept {}
-
-void Syncer::CheckAndDeleteJoinableProcessingThreads(std::vector<std::thread> &processingThreads)
-{
-    processingThreads.erase(std::remove_if(processingThreads.begin(), processingThreads.end(),
-                                           [](const std::thread &t)
-                                           { return !t.joinable(); }),
-                            processingThreads.end());
-}
 
 void Syncer::DoConcurrentSyncOnChunk(const std::vector<size_t> &chunkToProcess)
 {
@@ -188,6 +180,7 @@ void Syncer::Sync()
         std::stack<Database::Checkpoint> checkpoints = this->database.GetUnfinishedCheckpoints();
         if (!checkpoints.empty())
         {
+            __DEBUG__("Syncing path: Unfinished checkpoints");
             this->SyncUnfinishedCheckpoints(checkpoints);
             this->worker_pool.RefreshThreadPool();
         }
@@ -210,6 +203,13 @@ void Syncer::Sync()
         }
         else
         {
+            __DEBUG__("Syncing path: By range");
+            uint64_t startRangeChunk = this->latestBlockSynced == 0 ? this->latestBlockSynced : this->latestBlockSynced + 1;
+            this->DoConcurrentSyncOnRange(true, startRangeChunk, this->latestBlockCount);
+        }
+        else
+        {
+            __DEBUG__("Syncing path: By chunk");
             std::vector<size_t> heights;
             size_t totalBlocksToSync = this->latestBlockCount - this->latestBlockSynced;
             heights.reserve(totalBlocksToSync);
@@ -233,6 +233,7 @@ void Syncer::Sync()
 
 void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlocks, std::vector<size_t> heightsToDownload)
 {
+    __DEBUG__("Downloading blocks: DownloadBlocksFromHeights");
     auto numHeightsToDownload{heightsToDownload.size()};
     if (numHeightsToDownload > Syncer::CHUNK_SIZE)
     {
@@ -266,12 +267,14 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
         }
         catch (jsonrpc::JsonRpcException &e)
         {
+            __ERROR__(e.what());
             ++i;
             getblockParams.clear();
             continue;
         }
         catch (std::exception &e)
         {
+            __ERROR__(e.what());
             ++i;
             getblockParams.clear();
             continue;
@@ -283,6 +286,8 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
 
 void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t startRange, uint64_t endRange)
 {
+    __DEBUG__("Downloading blocks: DownloadBlocks");
+
     std::lock_guard<std::mutex> lock(httpClientMutex);
     Json::Value getblockParams{Json::nullValue};
     Json::Value blockResultSerialized{Json::nullValue};
@@ -305,11 +310,13 @@ void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t s
         }
         catch (jsonrpc::JsonRpcException &e)
         {
+            __ERROR__(e.what());
             this->database.AddMissedBlock(startRange);
             downloadBlocks.push_back(Json::nullValue);
         }
         catch (std::exception &e)
         {
+            __ERROR__(e.what());
             this->database.AddMissedBlock(startRange);
             downloadBlocks.push_back(Json::nullValue);
         }
@@ -338,7 +345,7 @@ void Syncer::LoadTotalBlockCountFromChain()
         {
             while (std::string(e.what()).find("Loading block index") != std::string::npos && std::string(e.what()).find("Verifying blocks") != std::string::npos)
             {
-                std::cout << "Loading block index." << std::endl;
+                __INFO__("JSON RPC starting...");
             }
 
             this->LoadTotalBlockCountFromChain();
@@ -346,7 +353,7 @@ void Syncer::LoadTotalBlockCountFromChain()
     }
     catch (std::exception &e)
     {
-        std::cout << e.what() << std::endl;
+        __ERROR__(e.what());
         exit(1);
     }
 }
