@@ -341,8 +341,6 @@ std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints()
         }
 
         this->ReleaseConnection(std::move(conn));
-
-        // Return the found checkpoints
         return checkpoints;
     }
     catch (const pqxx::sql_error &e)
@@ -363,7 +361,7 @@ void Database::RemoveMissedBlock(size_t blockHeight)
 {
 }
 
-void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight)
+void Database::StoreChunk(const std::vector<Json::Value> &chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight)
 {
     std::optional<Database::Checkpoint> checkpointOpt = this->GetCheckpoint(trueRangeStartHeight);
     bool checkpointExist = checkpointOpt.has_value();
@@ -475,7 +473,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         }
         catch (const pqxx::sql_error &e)
         {
-                  std::cout << e.what() << std::endl;
+            std::cout << e.what() << std::endl;
             if (e.sqlstate().find("duplicate key value violates unique constraint") != std::string::npos)
             {
             }
@@ -496,10 +494,10 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         // Commit the block before taking a checkpoint
         if (shouldCommitBlock)
         {
+            std::cout << "Commiting block" << std::endl;
             insertBlockWork.commit();
         }
-        if (isTrackingCheckpointForChunk)
-        {
+
             // TODO: If the checkpont doesn't exist the update chunk checkpoint function shouldn't update it.. throw error
             auto now = std::chrono::steady_clock::now();
             auto elapsedTimeSinceLastCheckpoint = now - timeSinceLastCheckpoint;
@@ -523,7 +521,6 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
                     break;
                 }
             }
-        }
 
         ++chunkCurrentProcessingIndex;
         shouldCommitBlock = true;

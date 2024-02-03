@@ -17,7 +17,7 @@
 #include "config.h"
 
 size_t Syncer::CHUNK_SIZE = std::stoi(Config::getBlockChunkProcessingSize());
-const uint8_t Syncer::MAX_CONCURRENT_THREADS = 6; //std::thread::hardware_concurrency();
+const uint8_t Syncer::MAX_CONCURRENT_THREADS = 6; // std::thread::hardware_concurrency();
 
 Syncer::Syncer(CustomClient &httpClientIn, Database &databaseIn) : httpClient(httpClientIn), database(databaseIn), latestBlockSynced{0}, latestBlockCount{0}, isSyncing{false}, worker_pool{ThreadPool()}
 {
@@ -36,89 +36,70 @@ void Syncer::CheckAndDeleteJoinableProcessingThreads(std::vector<std::thread> &p
 void Syncer::DoConcurrentSyncOnChunk(const std::vector<size_t> &chunkToProcess)
 {
     std::vector<Json::Value> downloadedBlocks;
+    downloadedBlocks.reserve(chunkToProcess.size());
     this->DownloadBlocksFromHeights(downloadedBlocks, chunkToProcess);
 
-    // Create processable chunk
-
-    std::vector<Json::Value> chunk(downloadedBlocks.begin(), downloadedBlocks.end());
-
-    // Launch a new thread for the current chunk
-    worker_pool.SubmitTask([this](bool a, const std::vector<Json::Value> &b, uint64_t c, uint64_t d, uint64_t e)
+    worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks)](uint64_t c, uint64_t d, uint64_t e)
                            { 
-                            this->database.StoreChunk(a, b, c, d, e);
-                            this->worker_pool.TaskCompleted();
-                            },
-                           false, chunk, Database::InvalidHeight, Database::InvalidHeight, Database::InvalidHeight);
+                            this->database.StoreChunk(capturedDownloadedBlocks, c, d, e);
+                            this->worker_pool.TaskCompleted(); },
+                           Database::InvalidHeight, Database::InvalidHeight, Database::InvalidHeight);
 }
 
-void Syncer::DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint64_t start, uint64_t end) {
-    std::vector<Json::Value> downloadedBlocks;
-
-    // Generate a checkpoint for the start point if found
-    std::optional<Database::Checkpoint> checkpointOpt = this->database.GetCheckpoint(start);
-    bool checkpointExist = checkpointOpt.has_value();
-    Database::Checkpoint checkpoint;
-    size_t chunkStartPoint{start};
-    size_t chunkEndPoint;
-
-    if (end - chunkStartPoint + 1 >= Syncer::CHUNK_SIZE)
+size_t Syncer::GetNextSegmentIndex(size_t chunkEndpoint, size_t segmentStart)
+{
+    if (chunkEndpoint - segmentStart + 1 >= Syncer::CHUNK_SIZE)
     {
-        chunkEndPoint = chunkStartPoint + Syncer::CHUNK_SIZE - 1;
+        return segmentStart + Syncer::CHUNK_SIZE - 1;
+    }
+
+    return chunkEndpoint;
+}
+
+void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, bool isPreExistingCheckpoint)
+{
+    std::vector<Json::Value> downloadedBlocks;
+    size_t segmentStartIndex{rangeStart}; 
+    size_t segmentEndIndex{rangeEnd};   
+
+    if (isPreExistingCheckpoint)
+    {
+        std::optional<Database::Checkpoint> checkpointOpt = this->database.GetCheckpoint(rangeStart);
+        if (!checkpointOpt.has_value())
+        {
+            throw std::runtime_error("Invalid checkpoint where expected.");
+        }
+
+        segmentStartIndex = checkpointOpt.value().lastCheckpoint;
+        segmentEndIndex = checkpointOpt.value().chunkEndHeight;
+
+        downloadedBlocks.reserve(segmentEndIndex - segmentStartIndex);
+        this->DownloadBlocks(downloadedBlocks, segmentStartIndex, segmentEndIndex);
+
+        this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex, rangeStart]
+                                     { 
+                                        this->database.StoreChunk(capturedDownloadedBlocks, segmentStartIndex, segmentEndIndex, rangeStart); 
+                                        this->worker_pool.TaskCompleted(); });
     }
     else
     {
-        chunkEndPoint = end;
-    }
-
-    if (checkpointExist)
-    {
-        checkpoint = checkpointOpt.value();
-
-        // Set chunkStartPoint to the next block after the last check point
-        chunkStartPoint = checkpoint.lastCheckpoint;
-    }
-
-    bool isExistingCheckpoint = false;
-    while (chunkStartPoint <= end)
-    {
-        if (!checkpointExist && isTrackingCheckpointForChunks)
+        segmentEndIndex = GetNextSegmentIndex(rangeEnd, segmentStartIndex);
+        while (segmentStartIndex <= rangeEnd)
         {
-            isExistingCheckpoint = false;
-            this->database.CreateCheckpointIfNonExistent(chunkStartPoint, chunkEndPoint);
-        }
-        else
-        {
-            isExistingCheckpoint = true;
-        }
+            this->database.CreateCheckpointIfNonExistent(rangeStart, rangeEnd);
 
-        // Download blocks
-        this->DownloadBlocks(downloadedBlocks, chunkStartPoint, chunkEndPoint);
+            // Download blocks
+            downloadedBlocks.reserve(segmentEndIndex - segmentStartIndex);
+            this->DownloadBlocks(downloadedBlocks, segmentStartIndex, segmentEndIndex);
 
-        // Create processable chunk
-        std::vector<Json::Value> chunk(downloadedBlocks.begin(), downloadedBlocks.end());
+            this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex, rangeStart]
+                                         { 
+                                        this->database.StoreChunk(capturedDownloadedBlocks, segmentStartIndex, segmentEndIndex, rangeStart); 
+                                        this->worker_pool.TaskCompleted(); });
 
-        // Launch a new thread for the current chunk
-        this->worker_pool.SubmitTask([this](bool a, const std::vector<Json::Value> &b, uint64_t c, uint64_t d, uint64_t e)
-                                     { 
-                                        this->database.StoreChunk(a, b, c, d, e); 
-                                        this->worker_pool.TaskCompleted();
-                                     },
-                                     isTrackingCheckpointForChunks, chunk, chunkStartPoint, chunkEndPoint, isExistingCheckpoint ? start : chunkStartPoint);
-
-        // All blocks processed
-        downloadedBlocks.clear();
-
-        // Update chunkStartPoint to the next chunk
-        chunkStartPoint = chunkEndPoint + 1;
-
-        // Update chunkEndPoint for the next chunk, capped at 'end'
-        if (end - chunkStartPoint + 1 >= Syncer::CHUNK_SIZE)
-        {
-            chunkEndPoint = chunkStartPoint + Syncer::CHUNK_SIZE - 1;
-        }
-        else
-        {
-            chunkEndPoint = end;
+            // Update chunkStartPoint to the next chunk
+            segmentStartIndex = segmentEndIndex + 1;
+            segmentEndIndex = GetNextSegmentIndex(rangeEnd, segmentStartIndex);
         }
     }
 }
@@ -178,22 +159,23 @@ void Syncer::InvokeChainInfoRefreshLoop() noexcept
     }
 }
 
-void Syncer::SyncUnfinishedCheckpoints(std::stack<Database::Checkpoint>& checkpoints) {
+void Syncer::SyncUnfinishedCheckpoints(std::stack<Database::Checkpoint> &checkpoints)
+{
 
-        // Sync unfinished checkpoints
-        Database::Checkpoint currentCheckpoint;
+    // Sync unfinished checkpoints
+    Database::Checkpoint currentCheckpoint;
 
-        while (!checkpoints.empty())
-        {
-            currentCheckpoint = checkpoints.top();
+    while (!checkpoints.empty())
+    {
+        currentCheckpoint = checkpoints.top();
 
-            uint64_t startHeight = currentCheckpoint.chunkStartHeight;
-            uint64_t endHeight = currentCheckpoint.chunkEndHeight;
+        uint64_t startHeight = currentCheckpoint.chunkStartHeight;
+        uint64_t endHeight = currentCheckpoint.chunkEndHeight;
 
-            this->DoConcurrentSyncOnRange(true, startHeight, endHeight);
+        this->DoConcurrentSyncOnRange(startHeight, endHeight, true);
 
-            checkpoints.pop();
-        }
+        checkpoints.pop();
+    }
 }
 
 void Syncer::Sync()
@@ -204,11 +186,12 @@ void Syncer::Sync()
         this->worker_pool.RefreshThreadPool();
 
         std::stack<Database::Checkpoint> checkpoints = this->database.GetUnfinishedCheckpoints();
-        if (!checkpoints.empty()) {
+        if (!checkpoints.empty())
+        {
             this->SyncUnfinishedCheckpoints(checkpoints);
             this->worker_pool.RefreshThreadPool();
         }
-        
+
         // Sync new blocks
         this->LoadTotalBlockCountFromChain();
         this->LoadSyncedBlockCountFromDB();
@@ -222,11 +205,11 @@ void Syncer::Sync()
         else if (numNewBlocks >= CHUNK_SIZE)
         {
 
-            uint64_t startRangeChunk = this->latestBlockSynced == 0 ? this->latestBlockSynced : this->latestBlockSynced + 1;  
-            this->DoConcurrentSyncOnRange(true, startRangeChunk, this->latestBlockCount);
+            uint64_t startRangeChunk = this->latestBlockSynced == 0 ? this->latestBlockSynced : this->latestBlockSynced + 1;
+            this->DoConcurrentSyncOnRange(startRangeChunk, this->latestBlockCount, false);
         }
         else
-        { 
+        {
             std::vector<size_t> heights;
             size_t totalBlocksToSync = this->latestBlockCount - this->latestBlockSynced;
             heights.reserve(totalBlocksToSync);

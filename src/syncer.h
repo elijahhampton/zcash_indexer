@@ -73,7 +73,7 @@ private:
      *
      * @note The synchronization only operates in fixed ranges as defined by CHUNK_SIZE(s).
      */
-    void DoConcurrentSyncOnRange(bool isTrackingCheckpointForChunks, uint64_t start, uint64_t end);
+    void DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, bool isPreExistingCheckpoint);
     void StartSyncLoop();
 
     /**
@@ -168,6 +168,8 @@ private:
      * Signals to stop both peer monitoring and syncing processes by calling StopPeerMonitoring and StopSyncing respectively.
      */
     void Stop();
+
+    size_t GetNextSegmentIndex(size_t chunkEndpoint, size_t segmentStartpoint);
 
 public:
     static constexpr uint8_t BLOCK_DOWNLOAD_VERBOSE_LEVEL = 2;
