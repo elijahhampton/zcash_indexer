@@ -80,7 +80,6 @@ void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, boo
         {
             this->database.CreateCheckpointIfNonExistent(rangeStart, rangeEnd);
 
-            // Download blocks
             downloadedBlocks.reserve(segmentEndIndex - segmentStartIndex);
             this->DownloadBlocks(downloadedBlocks, segmentStartIndex, segmentEndIndex);
 
@@ -89,7 +88,6 @@ void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, boo
                                         this->database.StoreChunk(capturedDownloadedBlocks, segmentStartIndex, segmentEndIndex, rangeStart); 
                                         this->worker_pool.TaskCompleted(); });
 
-            // Update chunkStartPoint to the next chunk
             segmentStartIndex = segmentEndIndex + 1;
             segmentEndIndex = GetNextSegmentIndex(rangeEnd, segmentStartIndex);
         }
@@ -197,12 +195,6 @@ void Syncer::Sync()
         }
         else if (numNewBlocks >= CHUNK_SIZE)
         {
-
-            uint64_t startRangeChunk = this->latestBlockSynced == 0 ? this->latestBlockSynced : this->latestBlockSynced + 1;
-            this->DoConcurrentSyncOnRange(startRangeChunk, this->latestBlockCount, false);
-        }
-        else
-        {
             __DEBUG__("Syncing path: By range");
             uint64_t startRangeChunk = this->latestBlockSynced == 0 ? this->latestBlockSynced : this->latestBlockSynced + 1;
             this->DoConcurrentSyncOnRange(true, startRangeChunk, this->latestBlockCount);
@@ -231,7 +223,7 @@ void Syncer::Sync()
     }
 }
 
-void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlocks, std::vector<size_t> heightsToDownload)
+void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlocks, std::vector<size_t> heightsToDownload) 
 {
     __DEBUG__("Downloading blocks: DownloadBlocksFromHeights");
     auto numHeightsToDownload{heightsToDownload.size()};
@@ -284,11 +276,11 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
     }
 }
 
-void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t startRange, uint64_t endRange)
+void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t startRange, uint64_t endRange) 
 {
     __DEBUG__("Downloading blocks: DownloadBlocks");
 
-    std::lock_guard<std::mutex> lock(httpClientMutex);
+    std::lock_guard<std::mutex> lock(this->httpClientMutex);
     Json::Value getblockParams{Json::nullValue};
     Json::Value blockResultSerialized{Json::nullValue};
 

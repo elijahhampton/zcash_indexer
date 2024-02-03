@@ -115,7 +115,7 @@ private:
      * @param chunkEndHeight The ending height of the chunk.
      * @param trueRangeStartHeight The true starting height of the range. Defaults to 0 if not provided.
      */
-    void StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, uint64_t  chunkStartHeight, uint64_t  chunkEndHeight, uint64_t trueRangeStartHeight = Database::InvalidHeight) const;
+    void StoreChunk(const std::vector<Json::Value> &chunk, uint64_t  chunkStartHeight, uint64_t  chunkEndHeight, uint64_t trueRangeStartHeight = Database::InvalidHeight) const;
 
     /**
      * Stores transactions related to a block in the database.

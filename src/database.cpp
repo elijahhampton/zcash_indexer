@@ -404,7 +404,7 @@ void Database::RemoveMissedBlock(size_t blockHeight) const
     __DEBUG__(("Recovered block at height " + std::to_string(blockHeight)).c_str());
 }
 
-void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight) const
+void Database::StoreChunk(const std::vector<Json::Value> &chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight) const
 {
     __INFO__("Syncing path: StoreChunk()");
     std::optional<Database::Checkpoint> checkpointOpt = this->GetCheckpoint(trueRangeStartHeight);
