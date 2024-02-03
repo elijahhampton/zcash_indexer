@@ -83,23 +83,28 @@ void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, boo
     }
     else
     {
-        segmentEndIndex = GetNextSegmentIndex(rangeEnd, segmentStartIndex);
+    
+        segmentEndIndex = this->GetNextSegmentIndex(rangeEnd, segmentStartIndex);
         while (segmentStartIndex <= rangeEnd)
         {
-            this->database.CreateCheckpointIfNonExistent(rangeStart, rangeEnd);
+            std::cout << "Not preexisting" << std::endl;
+            std::cout << "Start: " << segmentStartIndex << std::endl;
+            std::cout << "end: " << segmentEndIndex << std::endl;
+
+            this->database.CreateCheckpointIfNonExistent(segmentStartIndex, segmentEndIndex);
 
             // Download blocks
             downloadedBlocks.reserve(segmentEndIndex - segmentStartIndex);
             this->DownloadBlocks(downloadedBlocks, segmentStartIndex, segmentEndIndex);
 
-            this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex, rangeStart]
+            this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex]
                                          { 
-                                        this->database.StoreChunk(capturedDownloadedBlocks, segmentStartIndex, segmentEndIndex, rangeStart); 
+                                        this->database.StoreChunk(capturedDownloadedBlocks, segmentStartIndex, segmentEndIndex, segmentStartIndex); 
                                         this->worker_pool.TaskCompleted(); });
 
             // Update chunkStartPoint to the next chunk
             segmentStartIndex = segmentEndIndex + 1;
-            segmentEndIndex = GetNextSegmentIndex(rangeEnd, segmentStartIndex);
+            segmentEndIndex = this->GetNextSegmentIndex(rangeEnd, segmentStartIndex);
         }
     }
 }
