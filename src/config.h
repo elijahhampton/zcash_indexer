@@ -10,7 +10,7 @@ class Config {
 public:
     static std::string getEnv(const char* key, const std::string& defaultValue = "") {
         char* val = std::getenv(key);
-        if (val == nullptr) {  // Use default value if not found
+        if (val == nullptr) {  
             if (defaultValue.empty()) {
                 throw std::runtime_error(std::string("Environment variable ") + key + " is not set.");
             }

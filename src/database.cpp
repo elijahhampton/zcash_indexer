@@ -4,9 +4,6 @@
 #include <iostream>
 #include <memory>
 
-std::mutex Database::databaseConnectionCloseMutex;
-std::condition_variable Database::databaseConnectionCloseCondition;
-
 const uint64_t Database::InvalidHeight;
 
 Database::~Database()
@@ -14,11 +11,14 @@ Database::~Database()
     this->ShutdownConnections();
 }
 
-bool Database::Connect(size_t poolSize, const std::string &conn_str)
+void Database::Connect(size_t poolSize, const std::string &conn_str)
 {
-    if (this->is_connected) {
-        std::cerr << "Database is already connected. Exiting function Database::Connect()" << std::endl;
-        return false;
+    __INFO__("Attempting to connect to database and initialize connection pool.");
+
+    if (this->is_connected)
+    {
+        __INFO__("Database is already connected.");
+        return;
     }
 
     try
@@ -26,37 +26,38 @@ bool Database::Connect(size_t poolSize, const std::string &conn_str)
         for (size_t i = 0; i < poolSize; ++i)
         {
             auto conn = std::make_unique<pqxx::connection>(conn_str);
-            connectionPool.push(std::move(conn));
+            connection_pool.push(std::move(conn));
         }
 
         this->is_connected = true;
-
-        return true;
     }
     catch (std::exception &e)
     {
-        std::cerr << e.what() << std::endl;
         this->is_connected = false;
-        throw std::runtime_error("Error occurred while creating connection pool. Database unable to connect.");
-    }
+        this->ShutdownConnections();
 
-    return false;
+        std::stringstream err_stream;
+        err_stream << "Error occurred while creating connection pool: " << e.what() << std::endl;
+        __ERROR__(err_stream.str().c_str());
+        throw std::runtime_error(err_stream.str());
+    }
 }
 
-// TODO: Count number of databases used by each thread
-std::unique_ptr<pqxx::connection> Database::GetConnection()
+std::unique_ptr<pqxx::connection> Database::GetConnection() const
 {
+    __INFO__("GetConnection()");
     try
     {
-        std::unique_lock<std::mutex> lock(poolMutex);
-        poolCondition.wait(lock, [this]
-                           { return !connectionPool.empty(); });
+        std::unique_lock<std::mutex> lock(cs_connection_pool);
+        cv_connection_pool.wait(lock, [this]
+                                { return !connection_pool.empty(); });
 
-        auto conn = std::move(connectionPool.front());
-        connectionPool.pop();
+        auto conn = std::move(connection_pool.front());
+        connection_pool.pop();
 
         if (conn == nullptr || !conn->is_open())
         {
+            __ERROR__("------Invalid connection: connection is null or not open.--------");
             throw std::runtime_error("------Invalid connection: connection is null or not open.--------");
         }
 
@@ -64,14 +65,19 @@ std::unique_ptr<pqxx::connection> Database::GetConnection()
     }
     catch (std::exception &e)
     {
-        return nullptr;
-    }
+        __ERROR__(e.what());
 
-    return nullptr;
+        std::stringstream err_stream;
+        err_stream << e.what() << std::endl;
+
+        throw std::runtime_error(e.what());
+    }
 }
 
-void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn)
+void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn) const
 {
+    __INFO__("ReleaseConnection()");
+
     try
     {
         if (conn == nullptr || !conn->is_open())
@@ -79,111 +85,129 @@ void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn)
             return;
         }
 
-        std::lock_guard<std::mutex> lock(poolMutex);
-        connectionPool.push(std::move(conn));
-        poolCondition.notify_one();
+        std::lock_guard<std::mutex> lock(cs_connection_pool);
+        connection_pool.push(std::move(conn));
+        cv_connection_pool.notify_one();
     }
     catch (const std::exception &e)
     {
-        throw std::runtime_error("Failed to release a database connection.");
+        __ERROR__(e.what());
+
+        throw std::runtime_error(e.what());
     }
 }
 
-void Database::ShutdownConnections()
+void Database::ShutdownConnections() const
 {
-    // TODO
+    std::lock_guard<std::mutex> lock(this->cs_connection_pool);
+    if (!this->connection_pool.empty())
+    {
+        auto conn = std::move(this->connection_pool.front());
+
+        if (conn->is_open())
+        {
+            conn->close();
+        }
+
+        this->connection_pool.pop();
+    }
 }
 
 void Database::CreateTables()
 {
-    if (this->is_database_setup) {
+    if (this->is_database_setup)
+    {
         std::cerr << "Database has already been setup in the current instance. Exiting function Database::CreateTables()" << std::endl;
         return;
     }
 
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
+    std::string_view createTableStatements[7]{"CREATE TABLE blocks ("
+                                              "hash TEXT PRIMARY KEY, "
+                                              "height INTEGER, "
+                                              "timestamp INTEGER, "
+                                              "nonce TEXT,"
+                                              "size INTEGER,"
+                                              "num_transactions INTEGER,"
+                                              "total_block_output DOUBLE PRECISION, "
+                                              "difficulty DOUBLE PRECISION, "
+                                              "chainwork TEXT, "
+                                              "merkle_root TEXT, "
+                                              "version INTEGER, "
+                                              "bits TEXT, "
+                                              "transaction_ids TEXT[], "
+                                              "num_outputs INTEGER, "
+                                              "num_inputs INTEGER, "
+                                              "total_block_input DOUBLE PRECISION, "
+                                              "miner TEXT"
+                                              ")",
+                                              "CREATE TABLE transactions ("
+                                              "tx_id TEXT PRIMARY KEY, "
+                                              "size INTEGER, "
+                                              "is_overwintered TEXT, "
+                                              "version INTEGER, "
+                                              "total_public_input TEXT, "
+                                              "total_public_output TEXT, "
+                                              "hex TEXT, "
+                                              "hash TEXT, "
+                                              "timestamp INTEGER, "
+                                              "height INTEGER, "
+                                              "num_inputs INTEGER, "
+                                              "num_outputs INTEGER"
+                                              ")",
+                                              "CREATE TABLE checkpoints ("
+                                              "chunk_start_height INTEGER PRIMARY KEY,"
+                                              "chunk_end_height INTEGER,"
+                                              "last_checkpoint INTEGER"
+                                              ")",
+                                              "CREATE TABLE transparent_inputs ("
+                                              "tx_id TEXT PRIMARY KEY, "
+                                              "vin_tx_id TEXT, "
+                                              "v_out_idx INTEGER, "
+                                              "value DOUBLE PRECISION, "
+                                              "senders TEXT[], "
+                                              "coinbase TEXT)",
+                                              "CREATE TABLE transparent_outputs ("
+                                              "tx_id TEXT, "
+                                              "output_index INTEGER, "
+                                              "recipients TEXT[], "
+                                              "value TEXT)",
+                                              "CREATE TABLE peerinfo (addr TEXT, lastsend TEXT, lastrecv TEXT, conntime TEXT, subver TEXT, synced_blocks TEXT)",
+                                              "CREATE TABLE chain_info (orchard_pool_value DOUBLE PRECISION, best_block_hash TEXT, size_on_disk DOUBLE PRECISION, best_height INT, total_chain_value DOUBLE PRECISION)"};
 
-    // std::array of statements to create the required postgres tables
-    // Tables: blocks, transaction, checkpoints, transparent_inputs, transparent_outputs, peerinfo
-    std::array<std::string, 7> createTableStatements{"CREATE TABLE blocks ("
-                                                     "hash TEXT PRIMARY KEY, "
-                                                     "height INTEGER, "
-                                                     "timestamp INTEGER, "
-                                                     "nonce TEXT,"
-                                                     "size INTEGER,"
-                                                     "num_transactions INTEGER,"
-                                                     "total_block_output DOUBLE PRECISION, "
-                                                     "difficulty DOUBLE PRECISION, "
-                                                     "chainwork TEXT, "
-                                                     "merkle_root TEXT, "
-                                                     "version INTEGER, "
-                                                     "bits TEXT, "
-                                                     "transaction_ids TEXT[], "
-                                                     "num_outputs INTEGER, "
-                                                     "num_inputs INTEGER, "
-                                                     "total_block_input DOUBLE PRECISION, "
-                                                     "miner TEXT"
-                                                     ")",
-                                                     "CREATE TABLE transactions ("
-                                                     "tx_id TEXT PRIMARY KEY, "
-                                                     "size INTEGER, "
-                                                     "is_overwintered TEXT, "
-                                                     "version INTEGER, "
-                                                     "total_public_input TEXT, "
-                                                     "total_public_output TEXT, "
-                                                     "hex TEXT, "
-                                                     "hash TEXT, "
-                                                     "timestamp INTEGER, "
-                                                     "height INTEGER, "
-                                                     "num_inputs INTEGER, "
-                                                     "num_outputs INTEGER"
-                                                     ")",
-                                                     "CREATE TABLE checkpoints ("
-                                                     "chunk_start_height INTEGER PRIMARY KEY,"
-                                                     "chunk_end_height INTEGER,"
-                                                     "last_checkpoint INTEGER"
-                                                     ")",
-                                                     "CREATE TABLE transparent_inputs ("
-                                                     "tx_id TEXT PRIMARY KEY, "
-                                                     "vin_tx_id TEXT, "
-                                                     "v_out_idx INTEGER, "
-                                                     "value DOUBLE PRECISION, "
-                                                     "senders TEXT[], "
-                                                     "coinbase TEXT)",
-                                                     "CREATE TABLE transparent_outputs ("
-                                                     "tx_id TEXT, "
-                                                     "output_index INTEGER, "
-                                                     "recipients TEXT[], "
-                                                     "value TEXT)",
-                                                     "CREATE TABLE peerinfo (addr TEXT, lastsend TEXT, lastrecv TEXT, conntime TEXT, subver TEXT, synced_blocks TEXT)", 
-                                                     "CREATE TABLE chain_info (orchard_pool_value DOUBLE PRECISION, best_block_hash TEXT, size_on_disk DOUBLE PRECISION, best_height INT, total_chain_value DOUBLE PRECISION)"};
-
-    // TODO: Implement batch insertion
     try
     {
-        for (const std::string &query : createTableStatements)
+        pqxx::work tx(*conn);
+
+        for (const std::string_view &query : createTableStatements)
         {
             try
             {
-                pqxx::work w(*conn.get());
-                w.exec(query);
-                w.commit();
+                tx.exec(query.data());
             }
             catch (const pqxx::sql_error &e)
             {
+                // SQL Error Codes: https://www.postgresql.org/docs/15/errcodes-appendix.html
+
                 if (e.sqlstate() == "42P07")
                 {
-                    std::cerr << "Table already exists: " << e.what() << std::endl;
-                    continue;
+                    __DEBUG__(e.what()); // DUPLICATE_TABLE::Table already exists
                 }
                 else
                 {
+                    __DEBUG__(e.sqlstate().c_str());
+                    __DEBUG__(e.what());
+                    __DEBUG__("Aborting create table operations.");
+
+                    tx.abort();
                     this->is_database_setup = false;
                     throw;
                 }
             }
         }
 
+        tx.commit();
+        this->is_database_setup = true;
         this->ReleaseConnection(std::move(conn));
     }
     catch (const pqxx::sql_error &e)
@@ -198,10 +222,9 @@ void Database::CreateTables()
     }
 }
 
-void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProcessingChunkHeight)
+void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProcessingChunkHeight) const
 {
 
-    // TODO: Check if checkpoint exist and throw a runtime error if it doesn't
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
 
     try
@@ -218,16 +241,22 @@ void Database::UpdateChunkCheckpoint(size_t chunkStartHeight, size_t currentProc
         transaction.exec_prepared("update_checkpoint", chunkStartHeight, currentProcessingChunkHeight);
         transaction.commit();
 
+        std::string message = "Updating checkpoint from start value " + std::to_string(chunkStartHeight) + " to " + std::to_string(currentProcessingChunkHeight);
+        __DEBUG__(message.c_str());
+
         conn->unprepare("update_checkpoint");
         this->ReleaseConnection(std::move(conn));
     }
     catch (std::exception &e)
     {
+        __ERROR__(e.what());
         this->ReleaseConnection(std::move(conn));
+
+        throw;
     }
 }
 
-std::optional<Database::Checkpoint> Database::GetCheckpoint(signed int chunkStartHeight)
+std::optional<Database::Checkpoint> Database::GetCheckpoint(signed int chunkStartHeight) const
 {
     if (chunkStartHeight == Database::InvalidHeight)
     {
@@ -267,20 +296,19 @@ std::optional<Database::Checkpoint> Database::GetCheckpoint(signed int chunkStar
     }
     catch (const pqxx::sql_error &e)
     {
-        std::cerr << "SQL error: " << e.what() << std::endl;
-        std::cerr << "Query was: " << e.query() << std::endl;
+        __ERROR__(e.what());
         this->ReleaseConnection(std::move(conn));
         throw;
     }
     catch (const std::exception &e)
     {
-        std::cerr << "Error: " << e.what() << std::endl;
+        __ERROR__(e.what());
         this->ReleaseConnection(std::move(conn));
         throw;
     }
 }
 
-void Database::CreateCheckpointIfNonExistent(size_t chunkStartHeight, size_t chunkEndHeight)
+void Database::CreateCheckpointIfNonExistent(size_t chunkStartHeight, size_t chunkEndHeight) const
 {
     try
     {
@@ -300,17 +328,19 @@ void Database::CreateCheckpointIfNonExistent(size_t chunkStartHeight, size_t chu
         transaction.exec_prepared("insert_checkpoint", chunkStartHeight, chunkEndHeight, chunkStartHeight);
         transaction.commit();
 
+        __DEBUG__(("Checkpoint created at height " + std::to_string(chunkStartHeight) + " to " + std::to_string(chunkEndHeight)).c_str());
+
         conn->unprepare("insert_checkpoint");
 
         this->ReleaseConnection(std::move(conn));
     }
     catch (std::exception &e)
     {
-
+        __ERROR__(e.what());
     }
 }
 
-std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints()
+std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints() const
 {
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
 
@@ -332,39 +362,51 @@ std::stack<Database::Checkpoint> Database::GetUnfinishedCheckpoints()
         std::stack<Checkpoint> checkpoints;
         Checkpoint currentCheckpoint;
 
-        for (auto row : result)
+        pqxx::result::const_iterator row_iterator = result.cbegin();
+        while (row_iterator != result.cend())
         {
-            currentCheckpoint.chunkStartHeight = row["chunk_start_height"].as<size_t>();
-            currentCheckpoint.chunkEndHeight = row["chunk_end_height"].as<size_t>();
-            currentCheckpoint.lastCheckpoint = row["last_checkpoint"].as<size_t>();
+            currentCheckpoint.chunkStartHeight = row_iterator["chunk_start_height"].as<size_t>();
+            currentCheckpoint.chunkEndHeight = row_iterator["chunk_end_height"].as<size_t>();
+            currentCheckpoint.lastCheckpoint = row_iterator["last_checkpoint"].as<size_t>();
             checkpoints.push(currentCheckpoint);
+
+            ++row_iterator;
         }
 
         this->ReleaseConnection(std::move(conn));
-
-        // Return the found checkpoints
         return checkpoints;
     }
     catch (const pqxx::sql_error &e)
     {
+        __ERROR__(e.what());
         this->ReleaseConnection(std::move(conn));
+
+        std::stack<Database::Checkpoint> empty_stack;
+        return empty_stack;
     }
     catch (const std::exception &e)
     {
+        __ERROR__(e.what());
         this->ReleaseConnection(std::move(conn));
+
+        std::stack<Database::Checkpoint> empty_stack;
+        return empty_stack;
     }
 }
 
-void Database::AddMissedBlock(size_t blockHeight)
+void Database::AddMissedBlock(size_t blockHeight) const
 {
+    __DEBUG__(("Missed block at height " + std::to_string(blockHeight)).c_str());
 }
 
-void Database::RemoveMissedBlock(size_t blockHeight)
+void Database::RemoveMissedBlock(size_t blockHeight) const
 {
+    __DEBUG__(("Recovered block at height " + std::to_string(blockHeight)).c_str());
 }
 
-void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<Json::Value> &chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight)
+void Database::StoreChunk(const std::vector<Json::Value> &chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight) const
 {
+    __INFO__("Syncing path: StoreChunk()");
     std::optional<Database::Checkpoint> checkpointOpt = this->GetCheckpoint(trueRangeStartHeight);
     bool checkpointExist = checkpointOpt.has_value();
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
@@ -382,10 +424,8 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
 
     for (const auto &item : chunk)
     {
-        // Check for null Json::Value in block chunk
         if (item == Json::nullValue)
         {
-            // Mark as missed and add to missed blocks
             this->AddMissedBlock(item["height"].asLargestInt());
             ++chunkCurrentProcessingIndex;
             continue;
@@ -393,7 +433,6 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
 
         try
         {
-            // Parse Block Header
             const std::string nonce = item["nonce"].asString();
             const int version = item["version"].asInt();
             const std::string prevBlockHash = item["previousblockhash"].asString();
@@ -438,7 +477,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
             double total_block_public_output{0};
             double total_block_public_input{0};
             std::optional<pqxx::row> vin_transaction_look_buffer;
-            for (const Json::Value tx : transactions)
+            for (const Json::Value &tx : transactions)
             {
                 for (const Json::Value &voutItem : tx["vout"])
                 {
@@ -475,20 +514,13 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         }
         catch (const pqxx::sql_error &e)
         {
-                  std::cout << e.what() << std::endl;
-            if (e.sqlstate().find("duplicate key value violates unique constraint") != std::string::npos)
-            {
-            }
-            else
-            {
-            }
-
+            __ERROR__(e.what());
             this->AddMissedBlock(item["height"].asLargestInt());
             shouldCommitBlock = false;
         }
         catch (const std::exception &e)
         {
-            std::cout << e.what() << std::endl;
+            __ERROR__(e.what());
             this->AddMissedBlock(item["height"].asLargestInt());
             shouldCommitBlock = false;
         }
@@ -496,32 +528,31 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
         // Commit the block before taking a checkpoint
         if (shouldCommitBlock)
         {
+            std::cout << "Commiting block" << std::endl;
             insertBlockWork.commit();
         }
-        if (isTrackingCheckpointForChunk)
+
+        // TODO: If the checkpont doesn't exist the update chunk checkpoint function shouldn't update it.. throw error
+        auto now = std::chrono::steady_clock::now();
+        auto elapsedTimeSinceLastCheckpoint = now - timeSinceLastCheckpoint;
+
+        Database::Checkpoint checkpoint;
+        if (checkpointExist)
         {
-            // TODO: If the checkpont doesn't exist the update chunk checkpoint function shouldn't update it.. throw error
-            auto now = std::chrono::steady_clock::now();
-            auto elapsedTimeSinceLastCheckpoint = now - timeSinceLastCheckpoint;
+            checkpoint = checkpointOpt.value();
 
-            Database::Checkpoint checkpoint;
-            if (checkpointExist)
+            if (elapsedTimeSinceLastCheckpoint >= std::chrono::seconds(10))
             {
-                checkpoint = checkpointOpt.value();
 
-                if (elapsedTimeSinceLastCheckpoint >= std::chrono::seconds(10))
-                {
+                this->UpdateChunkCheckpoint(checkpointExist ? checkpoint.chunkStartHeight : chunkStartHeight, chunkCurrentProcessingIndex);
+                timeSinceLastCheckpoint = now;
+            }
 
-                    this->UpdateChunkCheckpoint(checkpointExist ? checkpoint.chunkStartHeight : chunkStartHeight, chunkCurrentProcessingIndex);
-                    timeSinceLastCheckpoint = now;
-                }
-
-                // Check one index before the end height to account for how the vector is indexed
-                if (chunkCurrentProcessingIndex == chunkEndHeight)
-                {
-                    this->UpdateChunkCheckpoint(checkpointExist ? checkpoint.chunkStartHeight : chunkStartHeight, chunkCurrentProcessingIndex);
-                    break;
-                }
+            // Check one index before the end height to account for how the vector is indexed
+            if (chunkCurrentProcessingIndex == chunkEndHeight)
+            {
+                this->UpdateChunkCheckpoint(checkpointExist ? checkpoint.chunkStartHeight : chunkStartHeight, chunkCurrentProcessingIndex);
+                break;
             }
         }
 
@@ -533,26 +564,7 @@ void Database::StoreChunk(bool isTrackingCheckpointForChunk, const std::vector<J
     this->ReleaseConnection(std::move(conn));
 }
 
-std::optional<pqxx::row> Database::GetTransactionById(const std::string &txid)
-{
-    std::unique_ptr<pqxx::connection> conn = this->GetConnection();
-
-    pqxx::work tx(*conn.get());
-
-    pqxx::result result = tx.exec_params(
-        "SELECT * FROM transactions WHERE tx_id = $1", txid);
-
-    this->ReleaseConnection(std::move(conn));
-
-    if (!result.empty())
-    {
-        return result[0];
-    }
-
-    return std::nullopt;
-}
-
-std::optional<pqxx::row> Database::GetOutputByTransactionIdAndIndex(const std::string &txid, uint64_t v_out_index)
+std::optional<pqxx::row> Database::GetOutputByTransactionIdAndIndex(const std::string &txid, uint64_t v_out_index) const
 {
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
     pqxx::work tx(*conn.get());
@@ -569,8 +581,10 @@ std::optional<pqxx::row> Database::GetOutputByTransactionIdAndIndex(const std::s
     return std::nullopt;
 }
 
-void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr<pqxx::connection> &conn, pqxx::work &blockTransaction)
+void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr<pqxx::connection> &conn, pqxx::work &blockTransaction) const
 {
+    __INFO__(("Storing transactions for height: " + block["height"].asString()).c_str());
+
     if (!block["tx"].isArray())
     {
         throw std::runtime_error("Database::StoreTransactions: Invalid input for transactions. Value is not an array.");
@@ -754,10 +768,12 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
                         }
                         catch (const pqxx::sql_error &e)
                         {
+                            __ERROR__(e.what());
                             throw;
                         }
                         catch (const std::exception &e)
                         {
+                            __ERROR__(e.what());
                             throw;
                         }
                     }
@@ -770,6 +786,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
             }
             catch (const pqxx::sql_error &e)
             {
+                __ERROR__(e.what());
                 conn->unprepare(insert_transactions_prepare);
                 conn->unprepare(insert_transparent_inputs_prepare);
                 conn->unprepare(insert_transparent_outputs_prepare);
@@ -777,6 +794,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
             }
             catch (const std::exception &e)
             {
+                __ERROR__(e.what());
                 conn->unprepare(insert_transactions_prepare);
                 conn->unprepare(insert_transparent_inputs_prepare);
                 conn->unprepare(insert_transparent_outputs_prepare);
@@ -793,7 +811,7 @@ void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr
     conn->unprepare(insert_transparent_outputs_prepare);
 }
 
-uint64_t Database::GetSyncedBlockCountFromDB()
+uint64_t Database::GetSyncedBlockCountFromDB() const
 {
     std::unique_ptr<pqxx::connection> conn = this->GetConnection();
 
@@ -811,22 +829,26 @@ uint64_t Database::GetSyncedBlockCountFromDB()
             syncedBlockCount = 0;
         }
 
+        __DEBUG__(("New synced block count " + std::to_string(syncedBlockCount)).c_str());
+
         this->ReleaseConnection(std::move(conn));
         return syncedBlockCount;
     }
     catch (std::exception &e)
     {
+        __ERROR__(e.what());
         this->ReleaseConnection(std::move(conn));
         return 0;
     }
     catch (pqxx::unexpected_rows &e)
     {
+        __ERROR__(e.what());
         this->ReleaseConnection(std::move(conn));
         return 0;
     }
 }
 
-void Database::StorePeers(const Json::Value &peer_info)
+void Database::StorePeers(const Json::Value &peer_info) const
 {
     std::unique_ptr<pqxx::connection> connection = this->GetConnection();
     try
@@ -860,22 +882,25 @@ void Database::StorePeers(const Json::Value &peer_info)
     }
     catch (const std::exception &e)
     {
+        __ERROR__(e.what());
         this->ReleaseConnection(std::move(connection));
     }
 }
 
-void Database::StoreChainInfo(const Json::Value& chain_info)
+void Database::StoreChainInfo(const Json::Value &chain_info) const
 {
 
-    if (!chain_info.isNull()) {
-        const char * insert_chain_info_query{"INSERT INTO chain_info (orchard_pool_value, best_block_hash, size_on_disk, best_height, total_chain_value) VALUES ($1, $2, $3, $4, $5)"};
+    if (!chain_info.isNull())
+    {
+        const char *insert_chain_info_query{"INSERT INTO chain_info (orchard_pool_value, best_block_hash, size_on_disk, best_height, total_chain_value) VALUES ($1, $2, $3, $4, $5)"};
         auto conn = this->GetConnection();
 
         double orchardPoolValue{0.0};
         Json::Value valuePools = chain_info["valuePools"];
         double totalChainValueAccumulator{0.0};
-        if (!valuePools.isNull()) {
-            for (const Json::Value& pool : valuePools)
+        if (!valuePools.isNull())
+        {
+            for (const Json::Value &pool : valuePools)
             {
                 if (pool["id"].asString() == "orchard")
                 {
@@ -886,12 +911,18 @@ void Database::StoreChainInfo(const Json::Value& chain_info)
             }
         }
 
-        try {
+        try
+        {
             pqxx::work tx{*conn.get()};
             tx.exec_params(insert_chain_info_query, orchardPoolValue, chain_info["bestblockhash"].asString(), chain_info["size_on_disk"].asDouble(), chain_info["estimatedheight"].asInt(), totalChainValueAccumulator);
             tx.commit();
             this->ReleaseConnection(std::move(conn));
-        } catch(const std::exception& e) {
+            delete insert_chain_info_query;
+        }
+        catch (const std::exception &e)
+        {
+            __ERROR__(e.what());
+            delete insert_chain_info_query;
             this->ReleaseConnection(std::move(conn));
         }
     }
