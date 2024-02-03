@@ -1,4 +1,5 @@
 #include "controller.h"
+#include "logger.h"
 
 #include <vector>
 #include <string>
@@ -9,9 +10,8 @@
 #include <mutex>
 #include "config.h"
 
-Controller::Controller()
-try : rpcClient(std::make_unique<CustomClient>(Config::getRpcUrl(), Config::getRpcUsername(), Config::getRpcPassword())),
-    syncer(std::make_unique<Syncer>(*rpcClient, database))
+Controller::Controller(std::unique_ptr<CustomClient> rpcClientIn, std::unique_ptr<Syncer> syncerIn,  std::unique_ptr<Database> databaseIn) : 
+rpcClient(std::move(rpcClientIn)), syncer(std::move(syncerIn)), database(std::move(databaseIn))
 {
     const std::string connection_string =
         "dbname=" + Config::getDatabaseName() +
@@ -20,17 +20,21 @@ try : rpcClient(std::make_unique<CustomClient>(Config::getRpcUrl(), Config::getR
         " host=" + Config::getDatabaseHost() +
         " port=" + Config::getDatabasePort();
 
+    __DEBUG__(connection_string.c_str());
+
     // Five connections are assigned to each hardware thread
-    unsigned int poolSize = std::thread::hardware_concurrency() * 5;
-    if (!this->database.Connect(poolSize, connection_string))
-    {
-        throw std::runtime_error("Database failed to open.");
+    size_t poolSize = std::thread::hardware_concurrency() * 5;
+    this->database->Connect(poolSize, connection_string);
+
+    __DEBUG__(("Initializing database with pool size: " + std::to_string(poolSize)).c_str());
+
+    if (this->rpcClient == nullptr) {
+        throw std::runtime_error("RPC client failed to initialize.");
     }
-}
-catch (const std::exception &e)
-{
-    std::cerr << "Error: " << e.what() << std::endl;
-    throw;
+
+    if (this->syncer == nullptr) {
+        throw std::runtime_error("Syncer failed to initialize.");
+    }
 }
 
 Controller::~Controller()
@@ -42,11 +46,11 @@ void Controller::InitAndSetup()
 {
     try
     {
-        this->database.CreateTables();
+        this->database->CreateTables();
     }
     catch (const std::exception &e)
     {
-        throw std::runtime_error("Database failed to create tables.");
+        throw std::runtime_error(e.what());
     }
 }
 
@@ -67,7 +71,7 @@ void Controller::StartMonitoringPeers()
 
 void Controller::StartMonitoringChainInfo()
 {
-    chain_info_monitoring_thread  = std::thread{&Syncer::InvokeChainInfoRefreshLoop, this->syncer.get()};
+    chain_info_monitoring_thread = std::thread{&Syncer::InvokeChainInfoRefreshLoop, this->syncer.get()};
 }
 
 void Controller::Shutdown()
@@ -87,7 +91,7 @@ void Controller::JoinJoinableSyncingOperations()
         peer_monitoring_thread.join();
     }
 
-    if (chain_info_monitoring_thread.joinable()) 
+    if (chain_info_monitoring_thread.joinable())
     {
         chain_info_monitoring_thread.join();
     }
@@ -95,14 +99,18 @@ void Controller::JoinJoinableSyncingOperations()
 
 int main()
 {
-    try
-        Controller controller;
-        controller.InitAndSetup();
-        controller.StartSyncLoop();
-        controller.StartMonitoringPeers();
-        controller.StartMonitoringChainInfo();
-        controller.JoinJoinableSyncingOperations();
-        controller.Shutdown();
+    auto database = std::make_unique<Database>();
+    auto rpcClient = std::make_unique<CustomClient>(Config::getRpcUrl(), Config::getRpcUsername(), Config::getRpcPassword());
+    auto syncer = std::make_unique<Syncer>(*rpcClient, *database);
+    
+   
+    Controller controller(std::move(rpcClient), std::move(syncer), std::move(database));
+    controller.InitAndSetup();
+    controller.StartSyncLoop();
+    controller.StartMonitoringPeers();
+    controller.StartMonitoringChainInfo();
+    controller.JoinJoinableSyncingOperations();
+    controller.Shutdown();
 
     return 0;
 }
