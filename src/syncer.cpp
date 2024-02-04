@@ -27,7 +27,7 @@ Syncer::~Syncer() noexcept {}
 
 void Syncer::DoConcurrentSyncOnChunk(const std::vector<size_t> &chunkToProcess)
 {
-    std::vector<Json::Value> downloadedBlocks;
+    std::vector<Block> downloadedBlocks;
     downloadedBlocks.reserve(chunkToProcess.size());
     this->DownloadBlocksFromHeights(downloadedBlocks, chunkToProcess);
 
@@ -50,7 +50,7 @@ size_t Syncer::GetNextSegmentIndex(size_t chunkEndpoint, size_t segmentStart)
 
 void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, bool isPreExistingCheckpoint)
 {
-    std::vector<Json::Value> downloadedBlocks;
+    std::vector<Block> downloadedBlocks;
     size_t segmentStartIndex{rangeStart}; 
     size_t segmentEndIndex{rangeEnd};   
 
@@ -83,9 +83,9 @@ void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, boo
             downloadedBlocks.reserve(segmentEndIndex - segmentStartIndex);
             this->DownloadBlocks(downloadedBlocks, segmentStartIndex, segmentEndIndex);
 
-            this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex, rangeStart]
+            this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex]
                                          { 
-                                        this->database.StoreChunk(capturedDownloadedBlocks, segmentStartIndex, segmentEndIndex, rangeStart); 
+                                        this->database.StoreChunk(capturedDownloadedBlocks, segmentStartIndex, segmentEndIndex, segmentStartIndex); 
                                         this->worker_pool.TaskCompleted(); });
 
             segmentStartIndex = segmentEndIndex + 1;
@@ -123,7 +123,7 @@ void Syncer::InvokePeersListRefreshLoop() noexcept
         }
         catch (const std::exception &e)
         {
-            std::cout << e.what() << std::endl;
+            __ERROR__(e.what());
         }
 
         std::this_thread::sleep_for(std::chrono::hours(24));
@@ -142,7 +142,7 @@ void Syncer::InvokeChainInfoRefreshLoop() noexcept
         }
         catch (const std::exception &e)
         {
-            std::cout << e.what() << std::endl;
+            __ERROR__(e.what());
         }
 
         std::this_thread::sleep_for(std::chrono::hours(6));
@@ -219,11 +219,11 @@ void Syncer::Sync()
     }
     catch (std::exception &e)
     {
-        std::cout << e.what() << std::endl;
+        __ERROR__(e.what());
     }
 }
 
-void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlocks, std::vector<size_t> heightsToDownload) 
+void Syncer::DownloadBlocksFromHeights(std::vector<Block> &downloadedBlocks, std::vector<size_t> heightsToDownload) 
 {
     __DEBUG__("Downloading blocks: DownloadBlocksFromHeights");
     auto numHeightsToDownload{heightsToDownload.size()};
@@ -235,7 +235,7 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
     Json::Value getblockParams;
     Json::Value blockResultSerialized;
 
-    std::lock_guard<std::mutex> lock(httpClientMutex);
+    std::lock_guard<std::mutex> lock(this->httpClientMutex);
     size_t i{0};
 
     while (i < numHeightsToDownload)
@@ -249,34 +249,31 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
 
             if (blockResultSerialized.isNull())
             {
-                ++i;
-                continue;
+                throw std::exception();
             }
 
-            downloadedBlocks.push_back(blockResultSerialized);
-            blockResultSerialized.clear();
-            getblockParams.clear();
+            downloadedBlocks.emplace_back(Block(blockResultSerialized));
         }
         catch (jsonrpc::JsonRpcException &e)
         {
             __ERROR__(e.what());
-            ++i;
-            getblockParams.clear();
-            continue;
+            this->database.AddMissedBlock(i);
+            downloadedBlocks.emplace_back(Block());
         }
         catch (std::exception &e)
         {
             __ERROR__(e.what());
-            ++i;
-            getblockParams.clear();
-            continue;
+            this->database.AddMissedBlock(i);
+            downloadedBlocks.emplace_back(Block());
         }
 
+        blockResultSerialized.clear();
+        getblockParams.clear();
         ++i;
     }
 }
 
-void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t startRange, uint64_t endRange) 
+void Syncer::DownloadBlocks(std::vector<Block> &downloadedBlocks, uint64_t startRange, uint64_t endRange) 
 {
     __DEBUG__("Downloading blocks: DownloadBlocks");
 
@@ -298,19 +295,19 @@ void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t s
                 throw new std::exception();
             }
 
-            downloadBlocks.push_back(blockResultSerialized);
+            downloadedBlocks.emplace_back(Block(blockResultSerialized));
         }
         catch (jsonrpc::JsonRpcException &e)
         {
             __ERROR__(e.what());
             this->database.AddMissedBlock(startRange);
-            downloadBlocks.push_back(Json::nullValue);
+            downloadedBlocks.emplace_back(Block());
         }
         catch (std::exception &e)
         {
             __ERROR__(e.what());
             this->database.AddMissedBlock(startRange);
-            downloadBlocks.push_back(Json::nullValue);
+            downloadedBlocks.emplace_back(Block());
         }
 
         blockResultSerialized.clear();

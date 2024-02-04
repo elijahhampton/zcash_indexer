@@ -8,6 +8,7 @@
 #include "database.h"
 #include "httpclient.h"
 #include "logger.h"
+#include "chain_resource.h"
 #include "thread_pool.h"
 #include <iostream>
 #include <string>
@@ -99,7 +100,7 @@ private:
      * @param downloadedBlocks A reference to a vector where the downloaded blocks will be stored.
      * @param heightsToDownload A vector containing the heights of the blocks to be downloaded.
      */
-    void DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlocks, std::vector<size_t> heightsToDownload);
+    void DownloadBlocksFromHeights(std::vector<Block> &downloadedBlocks, std::vector<size_t> heightsToDownload);
 
     /**
      * @brief Downloads a range of blocks from the blockchain.
@@ -111,7 +112,7 @@ private:
      * @param startRange The starting block height for the download.
      * @param endRange The ending block height for the download.
      */
-    void DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t startRange, uint64_t endRange);
+    void DownloadBlocks(std::vector<Block> &downloadBlocks, uint64_t startRange, uint64_t endRange);
 
     /**
      * @brief Loads the count of blocks that have been synced from the database.

@@ -17,7 +17,7 @@ class Controller
 private:
     std::unique_ptr<CustomClient> rpcClient{nullptr};
     std::unique_ptr<Syncer> syncer{nullptr};
-    std::unique_ptr<Database> database{nullptr};
+    std::shared_ptr<Database> database{nullptr};
 
     std::thread syncing_thread;
     std::thread peer_monitoring_thread;

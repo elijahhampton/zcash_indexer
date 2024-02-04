@@ -1,25 +1,53 @@
 #include <jsonrpccpp/common/jsonparser.h> 
 #include <vector>
-
-#include "database.h"
+#include <string>
+#include <pqxx/pqxx>
+#include <memory>
 
 #ifndef CHAIN_RESOURCE
 #define CHAIN_RESOURCE
 
 class Block;
+class Database;
 
-class Storeable {
-    public:
-        virtual void Store(const Database& database) const = 0;
-        virtual ~Storeable() {}
+struct StoreableBlockData
+{
+    bool isValid{false};
+    
+    const char * nonce{""};
+    uint8_t version;
+    const char * prev_block_hash{""};
+    const char * next_block_hash{""};
+    const char * merkle_root{""};
+    uint64_t timestamp{0};
+    uint64_t difficulty{0};
+    Json::Value transactions{Json::nullValue};
+    const char * hash{""};
+    uint64_t height{0};
+    uint64_t size{0};
+    const char * chainwork{""};
+    const char * bits{""};
+    uint64_t num_transactions{0};
+
+    uint64_t total_transparent_output;
+    std::string transaction_ids_database_representation{""};
+    uint64_t total_outputs;
+    uint64_t total_inputs;
+    uint64_t total_transparent_input;
+
+    StoreableBlockData();
+    StoreableBlockData(const Block& block);
+    StoreableBlockData(Json::Value rawBlock);
+    void ProcessBlockToStoreable(const Block& rawBlock);
+    const StoreableBlockData& GetStoreableBlockData() const;
 };
 
-class TransactionGroup: public Storeable {
+class TransactionGroup {
     private:
         Json::Value transactions;
         
     public:
-        TransactionGroup() = delete;
+        TransactionGroup();
         TransactionGroup(const Json::Value& transactions);
         TransactionGroup(const Block& block);
 
@@ -29,27 +57,31 @@ class TransactionGroup: public Storeable {
         TransactionGroup(TransactionGroup&& rhs) = default;
         TransactionGroup& operator=(TransactionGroup&& rhs) = default;
 
-        void Store(const Database& database) const;
+        const Json::Value& GetRawTransactions() const;
 };
 
-class Block: public Storeable {
+
+class Block {
     private:
-        Json::Value block;
+        Json::Value block{Json::nullValue};
+        StoreableBlockData storeableData;
         TransactionGroup transactionGroup;
 
     public:
+        Block();
         Block(const Json::Value& block);
-
-        Block() = delete;
         Block(const Block& rhs) = delete;
         Block& operator=(const Block& rhs) = delete;
 
         Block(Block&& rhs) = default;
         Block& operator=(Block&& rhs) = default;
         
+        const bool isValid() const;
         const TransactionGroup& GetTransactionGroup() const;
-        void Store(const Database& database) const;
+        const StoreableBlockData& GetStoreableBlockData() const;
+        const Json::Value& GetRawJson() const;
 };
+
 
 
 #endif // CHAIN_RESOURCE
