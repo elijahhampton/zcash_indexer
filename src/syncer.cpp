@@ -68,6 +68,7 @@ void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, boo
         downloadedBlocks.reserve(segmentEndIndex - segmentStartIndex);
         this->DownloadBlocks(downloadedBlocks, segmentStartIndex, segmentEndIndex);
 
+            __INFO__("Starting new thread to sync chunk for checkpoint.");
         this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex, rangeStart]
                                      { 
                                         this->database.StoreChunk(capturedDownloadedBlocks, segmentStartIndex, segmentEndIndex, rangeStart); 
@@ -79,15 +80,12 @@ void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, boo
         segmentEndIndex = this->GetNextSegmentIndex(rangeEnd, segmentStartIndex);
         while (segmentStartIndex <= rangeEnd)
         {
-            std::cout << "Not preexisting" << std::endl;
-            std::cout << "Start: " << segmentStartIndex << std::endl;
-            std::cout << "end: " << segmentEndIndex << std::endl;
-
             this->database.CreateCheckpointIfNonExistent(segmentStartIndex, segmentEndIndex);
 
             downloadedBlocks.reserve(segmentEndIndex - segmentStartIndex);
             this->DownloadBlocks(downloadedBlocks, segmentStartIndex, segmentEndIndex);
 
+            __INFO__("Starting new thread to sync chunk.");
             this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex]
                                          { 
                                         this->database.StoreChunk(capturedDownloadedBlocks, segmentStartIndex, segmentEndIndex, segmentStartIndex); 
@@ -160,6 +158,7 @@ void Syncer::SyncUnfinishedCheckpoints(std::stack<Database::Checkpoint> &checkpo
     // Sync unfinished checkpoints
     Database::Checkpoint currentCheckpoint;
 
+    __DEBUG__(("Syncing " + std::to_string(checkpoints.size()) + " checkpoints.").c_str());
     while (!checkpoints.empty())
     {
         currentCheckpoint = checkpoints.top();
@@ -167,6 +166,7 @@ void Syncer::SyncUnfinishedCheckpoints(std::stack<Database::Checkpoint> &checkpo
         uint64_t startHeight = currentCheckpoint.chunkStartHeight;
         uint64_t endHeight = currentCheckpoint.chunkEndHeight;
 
+        __DEBUG__(("Starting sync on checkpoint with start block height: " + std::to_string(startHeight)).c_str());
         this->DoConcurrentSyncOnRange(startHeight, endHeight, true);
 
         checkpoints.pop();

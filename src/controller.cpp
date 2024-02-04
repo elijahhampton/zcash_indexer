@@ -28,13 +28,13 @@ rpcClient(std::move(rpcClientIn)), syncer(std::move(syncerIn)), database(std::mo
 
     __DEBUG__(("Initializing database with pool size: " + std::to_string(poolSize)).c_str());
 
-    if (this->rpcClient == nullptr) {
-        throw std::runtime_error("RPC client failed to initialize.");
-    }
+    // if (this->rpcClient == nullptr) {
+    //     throw std::runtime_error("RPC client failed to initialize.");
+    // }
 
-    if (this->syncer == nullptr) {
-        throw std::runtime_error("Syncer failed to initialize.");
-    }
+    // if (this->syncer == nullptr) {
+    //     throw std::runtime_error("Syncer failed to initialize.");
+    // }
 }
 
 Controller::~Controller()
@@ -56,6 +56,7 @@ void Controller::InitAndSetup()
 
 void Controller::StartSyncLoop()
 {
+    __INFO__("Starting sync thread.");
     syncing_thread = std::thread{&Syncer::StartSyncLoop, this->syncer.get()};
 }
 
@@ -66,11 +67,13 @@ void Controller::StartSync()
 
 void Controller::StartMonitoringPeers()
 {
+    __INFO__("Starting peer monitoring thread.");
     peer_monitoring_thread = std::thread{&Syncer::InvokePeersListRefreshLoop, this->syncer.get()};
 }
 
 void Controller::StartMonitoringChainInfo()
 {
+    __INFO__("Starting chain info thread..");
     chain_info_monitoring_thread = std::thread{&Syncer::InvokeChainInfoRefreshLoop, this->syncer.get()};
 }
 
@@ -106,8 +109,8 @@ int main()
     Controller controller(std::move(rpcClient), std::move(syncer), std::move(database));
     controller.InitAndSetup();
     controller.StartSyncLoop();
-    controller.StartMonitoringPeers();
-    controller.StartMonitoringChainInfo();
+   // controller.StartMonitoringPeers();
+   // controller.StartMonitoringChainInfo();
     controller.JoinJoinableSyncingOperations();
     controller.Shutdown();
 

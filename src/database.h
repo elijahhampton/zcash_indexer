@@ -22,6 +22,8 @@
 #ifndef DATABASE_H
 #define DATABASE_H
 
+class ManagedConnection;
+
 class Database {
 
 friend class Controller;
@@ -39,22 +41,7 @@ private:
      * Shuts down all connections in the connection pool.
      * Closes each connection and clears the pool.
      */
-    void ShutdownConnections() const;
-
-    /**
-     * Releases a database connection back to the connection pool.
-     *
-     * @param conn A unique pointer to the pqxx connection to be released.
-     */
-    void ReleaseConnection(std::unique_ptr<pqxx::connection> conn) const;
-
-    /**
-     * Retrieves a database connection from the connection pool.
-     * Waits for a connection to become available if the pool is empty.
-     *
-     * @return A unique pointer to the pqxx connection.
-     */
-    std::unique_ptr<pqxx::connection> GetConnection() const;
+    void ShutdownConnections();
 
     /**
      * Updates the checkpoint for a specific chunk.
@@ -62,21 +49,21 @@ private:
      * @param chunkStartHeight The starting height of the chunk.
      * @param checkpointUpdateValue The value to update the checkpoint to.
      */
-    void UpdateChunkCheckpoint(size_t chunkStartHeight, size_t checkpointUpdateValue) const;
+    void UpdateChunkCheckpoint(size_t chunkStartHeight, size_t checkpointUpdateValue);
 
     /**
      * Adds a block height to a list or set of missed blocks.
      *
      * @param blockHeight The height of the block that was missed.
      */
-    void AddMissedBlock(size_t blockHeight) const;
+    void AddMissedBlock(size_t blockHeight);
 
     /**
      * Removes a block height from the list or set of missed blocks.
      *
      * @param blockHeight The height of the block to remove from missed blocks.
      */
-    void RemoveMissedBlock(size_t blockHeight) const;
+    void RemoveMissedBlock(size_t blockHeight);
 
     /**
      * Establishes connections to the database.
@@ -99,7 +86,7 @@ private:
      * @param chunkStartHeight The starting height of the chunk.
      * @param chunkEndHeight The ending height of the chunk.
      */
-    void CreateCheckpointIfNonExistent(size_t chunkStartHeight, size_t chunkEndHeight) const;
+    void CreateCheckpointIfNonExistent(size_t chunkStartHeight, size_t chunkEndHeight);
 
     /**
      * Loads and processes chunks that have not been processed yet.
@@ -115,7 +102,7 @@ private:
      * @param chunkEndHeight The ending height of the chunk.
      * @param trueRangeStartHeight The true starting height of the range. Defaults to 0 if not provided.
      */
-    void StoreChunk(const std::vector<Json::Value> &chunk, uint64_t  chunkStartHeight, uint64_t  chunkEndHeight, uint64_t trueRangeStartHeight = Database::InvalidHeight) const;
+    void StoreChunk(const std::vector<Json::Value> &chunk, uint64_t  chunkStartHeight, uint64_t  chunkEndHeight, uint64_t trueRangeStartHeight = Database::InvalidHeight);
 
     /**
      * Stores transactions related to a block in the database.
@@ -124,16 +111,16 @@ private:
      * @param conn A unique pointer to the database connection.
      * @param blockTransaction The transaction object for the block.
      */
-    void StoreTransactions(const Json::Value& block, const std::unique_ptr<pqxx::connection>& conn, pqxx::work &blockTransaction) const;
+    void StoreTransactions(const Json::Value& block, const ManagedConnection& conn, pqxx::work &blockTransaction);
 
     /**
      * Stores connected peers to the peersinfo table.
      * 
      * @param peer_info JSON array containing information about connected peers.
     */
-    void StorePeers(const Json::Value& peer_info) const;
+    void StorePeers(const Json::Value& peer_info);
 
-    void StoreChainInfo(const Json::Value& chain_info) const;
+    void StoreChainInfo(const Json::Value& chain_info);
     
 public:
  static const uint64_t InvalidHeight{std::numeric_limits<uint64_t>::max()};
@@ -142,6 +129,22 @@ public:
         size_t chunkEndHeight;
         size_t lastCheckpoint;
     };
+
+        /**
+     * Releases a database connection back to the connection pool.
+     *
+     * @param conn A unique pointer to the pqxx connection to be released.
+     */
+    void ReleaseConnection(std::unique_ptr<pqxx::connection> conn);
+
+    /**
+     * Retrieves a database connection from the connection pool.
+     * Waits for a connection to become available if the pool is empty.
+     *
+     * @return A unique pointer to the pqxx connection.
+     */
+    std::unique_ptr<pqxx::connection> GetConnection();
+
 
     /**
      * Constructs the Database object.
@@ -159,10 +162,33 @@ public:
     Database(Database&& rhs) noexcept = default;
     Database& operator=(Database&& rhs) noexcept = default;
 
-    uint64_t GetSyncedBlockCountFromDB() const;
-    std::optional<pqxx::row> GetOutputByTransactionIdAndIndex(const std::string& txid, uint64_t v_out_index) const;
-    std::stack<Database::Checkpoint> GetUnfinishedCheckpoints() const;
-    std::optional<Database::Checkpoint> GetCheckpoint(signed int chunkStartHeight) const;
+    uint64_t GetSyncedBlockCountFromDB();
+    std::optional<pqxx::row> GetOutputByTransactionIdAndIndex(const std::string& txid, uint64_t v_out_index);
+    std::stack<Database::Checkpoint> GetUnfinishedCheckpoints();
+    std::optional<Database::Checkpoint> GetCheckpoint(signed int chunkStartHeight);
+};
+
+class ManagedConnection {
+public:
+    ManagedConnection(Database& db) : db_(db), conn_(db.GetConnection()) {}
+
+    ~ManagedConnection() {
+        db_.ReleaseConnection(std::move(conn_));
+    }
+
+// Overload the dereference operator to return a reference to the pqxx::connection
+    pqxx::connection& operator*() const {
+        return *conn_;
+    }
+
+    // Overload the arrow operator to return the pointer to pqxx::connection
+    pqxx::connection* operator->() const {
+        return conn_.get();
+    }
+
+private:
+    Database& db_;
+    std::unique_ptr<pqxx::connection> conn_;
 };
 
 #endif // DATABASE_H

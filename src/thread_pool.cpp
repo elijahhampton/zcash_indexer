@@ -2,7 +2,7 @@
 #include <boost/bind/bind.hpp>
 #include <thread>
 
-const uint8_t ThreadPool::MAX_HARDWARE_THREADS = 6; //std::thread::hardware_concurrency();
+const uint8_t ThreadPool::MAX_HARDWARE_THREADS = std::thread::hardware_concurrency() - 2;
 
 ThreadPool::ThreadPool() : work(new boost::asio::io_service::work(this->io_service)), active_task(0)
 {

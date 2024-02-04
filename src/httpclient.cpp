@@ -64,7 +64,7 @@ CustomClient::CustomClient(const std::string &url, const std::string &username, 
 
 Json::Value CustomClient::CallMethod(const std::string &method, const Json::Value &params)
 {
-    __DEBUG__(("Calling HTTP method: " + method).c_str());
+    __DEBUG__(("RPC: method=" + method).c_str());
     return rpcClient.CallMethod(method, params);
 }
 
