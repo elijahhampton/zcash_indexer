@@ -6,7 +6,7 @@ const uint8_t ThreadPool::MAX_HARDWARE_THREADS = std::thread::hardware_concurren
 
 ThreadPool::ThreadPool() : work(new boost::asio::io_service::work(this->io_service)), active_task(0)
 {
-    __DEBUG__(("Creating " + std::to_string(ThreadPool::MAX_HARDWARE_THREADS) " worker threads.").c_str());
+    __DEBUG__(("Creating " + std::to_string(ThreadPool::MAX_HARDWARE_THREADS) + " worker threads.").c_str());
     for (size_t i = 0; i < ThreadPool::MAX_HARDWARE_THREADS; ++i)
     {
         this->worker_threads.create_thread(
