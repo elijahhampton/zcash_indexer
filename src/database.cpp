@@ -528,7 +528,6 @@ void Database::StoreChunk(const std::vector<Json::Value> &chunk, uint64_t chunkS
         // Commit the block before taking a checkpoint
         if (shouldCommitBlock)
         {
-            std::cout << "Commiting block" << std::endl;
             insertBlockWork.commit();
         }
 
