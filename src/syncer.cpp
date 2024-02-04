@@ -59,6 +59,9 @@ void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, boo
         std::optional<Database::Checkpoint> checkpointOpt = this->database.GetCheckpoint(rangeStart);
         if (!checkpointOpt.has_value())
         {
+            __ERROR__(("Expected checkpoint for height: " + std::to_string(rangeStart)).c_str());
+            __ERROR__("Invalid checkpoint where expected");
+            exit(1);
             throw std::runtime_error("Invalid checkpoint where expected.");
         }
 
@@ -178,7 +181,10 @@ void Syncer::Sync()
     try
     {
         this->isSyncing = true;
-        this->worker_pool.RefreshThreadPool();
+
+        if (!this->worker_pool.isEmpty()) {
+            this->worker_pool.RefreshThreadPool();
+        }
 
         std::stack<Database::Checkpoint> checkpoints = this->database.GetUnfinishedCheckpoints();
         if (!checkpoints.empty())

@@ -8,6 +8,7 @@
 #include <mutex>
 #include <condition_variable> 
 #include <atomic>
+#include "logger.h"
 
 class ThreadPool
 {
@@ -31,6 +32,7 @@ public:
     ThreadPool(ThreadPool &&pool) noexcept = default;
     ~ThreadPool() noexcept;
 
+    bool isEmpty();
     void RefreshThreadPool();
     void TaskCompleted();
     void End();
