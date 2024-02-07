@@ -1,5 +1,5 @@
-# Zcash Blockchain Syncing Module
-A C++ module designed for exploratory synchronization of the Zcash blockchain.
+# Zcash Blockchain Storage Module
+A C++ module designed to store the Zcash blockchain based on a custom schema and DB (Postgres currently supported)
 
 ## Installation
 
@@ -51,18 +51,6 @@ make clean
 ```bash
 ./syncer
 ```
-
-## Debugging with LLDB
-### Launching LLDB with Target Executable:
-This command launches LLDB and loads syncer as the target executable. LLDB should now be awaiting further commands.
-```bash
-lldb syncer
-```
-
-### Running the executable
-This command tells LLDB to run the syncer executable. Execution will proceed until a breakpoint is hit, or the program exits or crashes.
-```bash
-run
 ```
 
 
