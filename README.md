@@ -11,9 +11,6 @@ Install openssl, json-rpc-cpp, jsoncpp, libpqxx, and the Boost libraries:
 ```bash
 brew install openssl json-rpc-cpp jsoncpp libpqxx boost
 
-# As json-rpc-cpp is not a common library, it might not be available via Homebrew. You might need to install it from source or find an alternative method.
-```
-
 Note:
 The json-rpc-cpp, libpqxx, and jsoncpp libraries are specified here for installation via Homebrew, but please note that not all libraries may be available via Homebrew, or the library names may be different in Homebrew.
 For libraries not available via Homebrew, you may need to download and install them manually from their respective websites or repositories.
