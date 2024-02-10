@@ -24,11 +24,7 @@ StoreableBlockData::StoreableBlockData(const Block &block)
         this->chainwork = rawBlock["chainwork"].asCString();
         this->bits = rawBlock["bits"].asCString();
         this->num_transactions = this->transactions.size();
-
-        this->ProcessBlockToStoreable(rawBlock);
     }
-
-    this->isValid = false;
 }
 
 StoreableBlockData::StoreableBlockData(Json::Value rawBlock) : nonce(rawBlock["nonce"].asCString()),
@@ -52,67 +48,237 @@ StoreableBlockData::StoreableBlockData(Json::Value rawBlock) : nonce(rawBlock["n
     }
 
     this->isValid = true;
-    this->ProcessBlockToStoreable(rawBlock);
 }
 
-
-void StoreableBlockData::ProcessBlockToStoreable(const Block &rawBlock)
+void StoreableBlockData::ProcessBlockToStoreable(pqxx::work &blockTransaction, std::unique_ptr<pqxx::connection> &conn)
 {
-    std::string transaction_ids_sql_representation = "{";
+    conn->prepare("insert_block",
+                  "INSERT INTO blocks (hash, height, timestamp, nonce, size, num_transactions, total_block_output, difficulty, chainwork, merkle_root, version, bits, transaction_ids, num_outputs, num_inputs, total_block_input, miner) "
+                  "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) "
+                  "ON CONFLICT (hash) "
+                  "DO NOTHING;");
 
-    const uint64_t transactions_size = this->transactions.size();
+    conn->prepare("insert_transactions",
+                  R"(
+        INSERT INTO transactions 
+        (tx_id, size, is_overwintered, version, total_public_input, total_public_output, hex, hash, timestamp, height, num_inputs, num_outputs)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        ON CONFLICT (tx_id) 
+        DO NOTHING
+        )");
 
-    if (this->transactions.isArray() && transactions_size > 0)
+    try
     {
-        for (uint64_t i = 0; i < transactions_size; ++i)
-        {
-            this->total_outputs += static_cast<uint64_t>(this->transactions[static_cast<Json::Value::ArrayIndex>(i)]["vout"].size());
-            this->total_inputs += static_cast<uint64_t>(this->transactions[static_cast<Json::Value::ArrayIndex>(i)]["vin"].size());
+        const uint64_t transactions_size = this->transactions.size();
 
-            if (this->transactions[static_cast<Json::Value::ArrayIndex>(i)].isMember("txid") && this->transactions[static_cast<Json::Value::ArrayIndex>(i)]["txid"].isString())
+        if (this->transactions.isArray() && transactions_size > 0)
+        {
+            uint64_t currentTransactionIndex{0};
+            bool isCoinbase{false};
+
+            for (const Json::Value &tx : this->transactions)
             {
-                transaction_ids_sql_representation += "\"" + this->transactions[static_cast<Json::Value::ArrayIndex>(i)]["txid"].asString() + "\"";
-                if (i < transactions_size - 1)
+                if (tx.isNull())
                 {
-                    transaction_ids_sql_representation += ",";
+                    throw std::runtime_error("Invalid transaction at block height " + std::to_string(this->height) + ".");
                 }
-            }
-        }
-    }
 
-    transaction_ids_sql_representation += "}";
-    for (const Json::Value &tx : this->transactions)
-    {
-        for (const Json::Value &voutItem : tx["vout"])
-        {
-            this->total_transparent_output += voutItem["value"].asDouble();
-        }
+                std::string tx_id = tx["txid"].asString();
 
-        if (tx["vin"].size() == 1)
-        {
-            this->total_transparent_input = 0;
-        }
-        else
-        {
-            Json::Value output_specified_in_vin;
-            for (const Json::Value &vinItem : tx["vin"])
-            {
-                const std::optional<const pqxx::result> database_read_result = Database::ExecuteRead("SELECT * FROM transparent_outputs WHERE tx_id = $1 AND output_index = $2", vinItem["txid"].asString(), static_cast<uint64_t>(vinItem["vout"].asInt()));
-                if (database_read_result.has_value() && !database_read_result.value().empty()) {
-                    this->total_transparent_input += database_read_result.value()[0]["value"].as<double>(); 
+                // Transactions array -> Database list representation
+                std::string transaction_ids_database_representation = "{";
+                transaction_ids_database_representation += "\"" + tx_id + "\"";
+
+                if (currentTransactionIndex < transactions_size - 1)
+                {
+                    transaction_ids_database_representation += ",";
+                }
+
+                transaction_ids_database_representation += "}";
+
+                // Transaction inputs / outputs
+                this->total_outputs += static_cast<uint64_t>(tx["vout"].size());
+                this->total_inputs += static_cast<uint64_t>(tx["vin"].size());
+                this->total_transparent_output += tx["vout"].asDouble();
+
+                if (tx["vin"].isArray() && tx["vin"].size() == 1 && tx["vin"][0].isMember("coinbase"))
+                {
+                    this->total_transparent_input = 0.0;
+                    isCoinbase = true;
                 }
                 else
                 {
-                    this->total_transparent_input += 0.0;
+                    const std::optional<const pqxx::result> database_read_result = Database::ExecuteRead("SELECT * FROM transparent_outputs WHERE tx_id = $1 AND output_index = $2", tx["vin"]["txid"].asString(), static_cast<uint64_t>(tx["vin"]["vout"].asInt()));
+                    if (database_read_result.has_value() && !database_read_result.value().empty())
+                    {
+                        this->total_transparent_input += database_read_result.value()[0]["value"].as<double>();
+                    }
                 }
 
-                output_specified_in_vin = 0;
+                double current_total_block_public_input{0.0};
+                double current_total_block_public_output{0.0};
+                this->_storeTransparentInputs(tx_id, tx["vin"], conn, "insert_transparent_inputs", blockTransaction, current_total_block_public_input);
+                this->_storeTransparentOutputs(tx_id, tx["vout"], conn, "insert_transparent_outputs", blockTransaction, current_total_block_public_output);
+
+                blockTransaction.exec_prepared("insert_transaction", tx_id, std::to_string(tx.size()), tx["overwintered"].asCString(), tx["version"].asCString(), std::to_string(current_total_block_public_input), std::to_string(current_total_block_public_output), tx["hex"].asCString(), this->hash, this->timestamp, this->height, tx["vin"].size(), static_cast<uint64_t>(tx["vout"].size()));
+
+                this->total_transparent_input += current_total_block_public_input;
+                this->total_transparent_output += current_total_block_public_output;
+
+                ++currentTransactionIndex;
+            }
+
+            blockTransaction.exec_prepared("insert_block", this->hash, this->height, this->timestamp, this->nonce, this->size, this->num_transactions, this->total_transparent_input, this->difficulty, this->chainwork, this->merkle_root, this->version, this->bits, this->transaction_ids_database_representation, this->total_outputs, this->total_inputs, this->total_transparent_output, "");
+        }
+    }
+    catch (const std::exception &e)
+    {
+        __ERROR__(e.what());
+        throw;
+    }
+}
+
+void StoreableBlockData::_storeTransparentInputs(const std::string &tx_id, const Json::Value &inputs, std::unique_ptr<pqxx::connection> &conn, const std::string &prepared_statement, pqxx::work &blockTransaction, double &total_transparent_input)
+{
+    conn->prepare("insert_transparent_inputs",
+                  R"(
+                 INSERT INTO transparent_inputs 
+                 (tx_id, vin_tx_id, v_out_idx, value, senders, coinbase)
+                 VALUES ($1, $2, $3, $4, $5, $6)
+                 ON CONFLICT (tx_id) 
+                 DO NOTHING
+              )");
+
+    if (inputs.size() > 0)
+    {
+
+        std::string vin_tx_id;
+        uint32_t v_out_idx;
+        std::string coinbase{""};
+        std::string senders{"{}"};
+
+        double current_input_value{0.0};
+
+        for (const Json::Value &input : inputs)
+        {
+            try
+            {
+                if (input.isMember("coinbase"))
+                {
+                    coinbase = input["coinbase"].asString();
+                    vin_tx_id = "-1";
+                    v_out_idx = 0; // Represent v_out_idx for coinbase transactions with alternative value.
+                    senders = "{}";
+                }
+                else
+                {
+                    coinbase = "";
+                    vin_tx_id = input["txid"].asString();
+                    v_out_idx = input["vout"].asInt();
+
+                    // Find the vout referenced in this vin to get the value and add to the total public input
+                    const std::optional<const pqxx::result> database_read_result = Database::ExecuteRead("SELECT * FROM transparent_outputs WHERE tx_id = $1 AND output_index = $2", input["txid"].asString(), static_cast<uint64_t>(input["vout"].asInt()));
+                    if (database_read_result.has_value())
+                    {
+                        pqxx::result db_read_result = database_read_result.value();
+                        if (!db_read_result.empty())
+                        {
+                            pqxx::row output_specified_in_vin = db_read_result[0];
+                            current_input_value = output_specified_in_vin["value"].as<double>();
+                            senders = output_specified_in_vin["recipients"].as<std::string>();
+                        }
+                    }
+                    else
+                    {
+                        senders = "{}";
+                        current_input_value = 0.0;
+                    }
+
+                    total_transparent_input += current_input_value;
+                }
+
+                blockTransaction.exec_prepared(prepared_statement, tx_id, vin_tx_id, v_out_idx, current_input_value, senders, coinbase);
+
+                senders = "{}";
+                current_input_value = 0.0;
+            }
+            catch (const pqxx::sql_error &e)
+            {
+                __ERROR__(e.what());
+                throw;
+            }
+            catch (const std::exception &e)
+            {
+                __ERROR__(e.what());
+                throw;
             }
         }
     }
 }
 
-const StoreableBlockData &StoreableBlockData::GetStoreableBlockData() const
+void StoreableBlockData::_storeTransparentOutputs(const std::string &tx_id, const Json::Value &outputs, std::unique_ptr<pqxx::connection> &conn, const std::string &prepared_statement, pqxx::work &blockTransaction, double &total_public_output)
+{
+    conn->prepare("insert_transparent_outputs",
+                  R"(
+                 INSERT INTO transparent_outputs 
+                 (tx_id, output_index, recipients, value)
+                 VALUES ($1, $2, $3, $4)
+              )");
+
+    double currentOutputValue{0.0};
+
+    // Transaction outputs
+    if (outputs.size() > 0)
+    {
+        size_t outputIndex{0};
+        std::vector<std::string> recipients;
+        for (const Json::Value &vOutEntry : outputs)
+        {
+            try
+            {
+                outputIndex = vOutEntry["n"].asLargestInt();
+                currentOutputValue = vOutEntry["value"].asDouble();
+                total_public_output += currentOutputValue;
+
+                // Stringify recipient list for addresses in vout
+                Json::Value vOutAddresses = vOutEntry["scriptPubKey"]["addresses"];
+                std::string recipientList = "{";
+                if (vOutAddresses.isArray() && vOutAddresses.size() > 0)
+                {
+                    for (const Json::Value &vOutAddress : vOutAddresses)
+                    {
+                        recipients.push_back(vOutAddress.asString());
+                    }
+
+                    if (!recipients.empty())
+                    {
+                        recipientList += "\"" + recipients[0] + "\"";
+                        for (size_t i = 1; i < recipients.size(); ++i)
+                        {
+                            recipientList += ",\"" + recipients[i] + "\"";
+                        }
+                    }
+                }
+
+                recipientList += "}";
+                blockTransaction.exec_prepared(prepared_statement, tx_id, outputIndex, recipientList, currentOutputValue);
+                recipients.clear();
+            }
+            catch (const pqxx::sql_error &e)
+            {
+                __ERROR__(e.what());
+                throw;
+            }
+            catch (const std::exception &e)
+            {
+                __ERROR__(e.what());
+                throw;
+            }
+        }
+    }
+}
+
+StoreableBlockData &StoreableBlockData::GetStoreableBlockData()
 {
     return *this;
 }
@@ -120,7 +286,7 @@ const StoreableBlockData &StoreableBlockData::GetStoreableBlockData() const
 // Block
 Block::Block() {}
 
-Block::Block(const Json::Value &rawBlock) : block(rawBlock), transactionGroup(this->block["tx"]), storeableData(rawBlock)
+Block::Block(const Json::Value &rawBlock) : block(rawBlock), storeableData(rawBlock)
 {
     if (rawBlock.isNull() || !this->block["tx"].isArray())
     {
@@ -133,37 +299,12 @@ const Json::Value &Block::GetRawJson() const
     return this->block;
 }
 
-const StoreableBlockData &Block::GetStoreableBlockData() const
+StoreableBlockData &Block::GetStoreableBlockData()
 {
     return storeableData.GetStoreableBlockData();
-}
-
-// Transaction Group
-
-const TransactionGroup &Block::GetTransactionGroup() const
-{
-    return transactionGroup;
 }
 
 const bool Block::isValid() const
 {
     return !this->block.isNull();
-}
-
-TransactionGroup::TransactionGroup() {}
-
-TransactionGroup::TransactionGroup(const Json::Value &transactions)
-{
-    if (!transactions.isArray())
-    {
-        throw std::invalid_argument("Invalid JSON value for Block(rawBlock)");
-    }
-}
-TransactionGroup::TransactionGroup(const Block &block) : transactions(block.GetTransactionGroup().GetRawTransactions())
-{
-}
-
-const Json::Value &TransactionGroup::GetRawTransactions() const
-{
-    return this->transactions;
 }

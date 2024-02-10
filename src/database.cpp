@@ -433,17 +433,12 @@ std::optional<const pqxx::result> Database::ExecuteRead(const char *sql, Args...
 void Database::StoreChunk(const std::vector<Block> &chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight)
 {
     __INFO__("Syncing path: StoreChunk()");
+    std::unique_ptr<pqxx::connection> conn = Database::GetConnection();
+    pqxx::work blockTransaction(*conn.get());
+
     std::optional<Database::Checkpoint> checkpointOpt = this->GetCheckpoint(trueRangeStartHeight);
     bool checkpointExist = checkpointOpt.has_value();
-    std::unique_ptr<pqxx::connection> conn = Database::GetConnection();
 
-    conn->prepare("insert_block",
-                  "INSERT INTO blocks (hash, height, timestamp, nonce, size, num_transactions, total_block_output, difficulty, chainwork, merkle_root, version, bits, transaction_ids, num_outputs, num_inputs, total_block_input, miner) "
-                  "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) "
-                  "ON CONFLICT (hash) "
-                  "DO NOTHING;");
-
-    pqxx::work insertBlockWork(*conn.get());
     bool shouldCommitBlock{true};
     auto timeSinceLastCheckpoint = std::chrono::steady_clock::now();
     size_t chunkCurrentProcessingIndex{static_cast<size_t>(chunkStartHeight)};
@@ -455,33 +450,26 @@ void Database::StoreChunk(const std::vector<Block> &chunk, uint64_t chunkStartHe
             ++chunkCurrentProcessingIndex;
             continue;
         }
-        try
-        {
-
-            //  auto [hash, height, timestamp, nonce, size, total_block_public_output, difficulty, chainwork, merkle_root, version, bits, transaction_ids_sql_representation, num_outputs_in_block, num_inputs_in_block, total_block_public_input, num_transactions] = item.GetStoreableBlockData();
-            //   insertBlockWork.exec_prepared("insert_block", hash, height, timestamp, nonce, size, num_transactions, total_block_public_output, difficulty, chainwork, merkle_root, version, bits, transaction_ids_sql_representation, num_outputs_in_block, num_inputs_in_block, total_block_public_input, "");
-
-            // auto [] = item.GetTransactionGroupStoreableData();
-
-         //   insertBlockWork.exec_prepared("insert_block", hash, height, timestamp, nonce, size, numTxs, total_block_public_output, difficulty, chainwork, merkle_root, version, bits, transaction_ids_sql_representation, num_outputs_in_block, num_inputs_in_block, total_block_public_input, "");
-          //  this->StoreTransactions(item, conn, insertBlockWork);
+        try 
+        {   
+            // @dev Eventually this method should receive the StoreableBlockData from GetStoreableBlock()
+            // and handle the execution of prepared statements here.
+            item.GetStoreableBlockData().ProcessBlockToStoreable(blockTransaction, conn);
         }
         catch (const pqxx::sql_error &e)
         {
             __ERROR__(e.what());
-          //  this->AddMissedBlock(item["height"].asLargestInt());
             shouldCommitBlock = false;
         }
         catch (const std::exception &e)
         {
             __ERROR__(e.what());
-         //   this->AddMissedBlock(item["height"].asLargestInt());
             shouldCommitBlock = false;
         }
 
         if (shouldCommitBlock)
         {
-            insertBlockWork.commit();
+            blockTransaction.commit();
         }
 
         auto now = std::chrono::steady_clock::now();
@@ -512,6 +500,9 @@ void Database::StoreChunk(const std::vector<Block> &chunk, uint64_t chunkStartHe
     }
 
     conn->unprepare("insert_block");
+    conn->unprepare("insert_transactions");
+    conn->unprepare("insert_transparent_inputs");
+    conn->unprepare("insert_transparent_outputs");
     Database::ReleaseConnection(std::move(conn));
 }
 
@@ -530,236 +521,6 @@ std::optional<pqxx::row> Database::GetOutputByTransactionIdAndIndex(const std::s
     }
 
     return std::nullopt;
-}
-
-void Database::StoreTransactions(const Json::Value &block, const std::unique_ptr<pqxx::connection> &conn, pqxx::work &blockTransaction)
-{
-    __INFO__(("Storing transactions for height: " + block["height"].asString()).c_str());
-
-    if (!block["tx"].isArray())
-    {
-        throw std::runtime_error("Database::StoreTransactions: Invalid input for transactions. Value is not an array.");
-    }
-
-    std::stringstream ss;
-    ss << std::this_thread::get_id();
-    std::string curr_thread_id = ss.str();
-
-    std::string insert_transactions_prepare = curr_thread_id + "_insert_transactions";
-    std::string insert_transparent_inputs_prepare = curr_thread_id + "_insert_transparent_inputs";
-    std::string insert_transparent_outputs_prepare = curr_thread_id + "_insert_transparent_outputs";
-
-    conn->prepare(insert_transactions_prepare,
-                  R"(
-        INSERT INTO transactions 
-        (tx_id, size, is_overwintered, version, total_public_input, total_public_output, hex, hash, timestamp, height, num_inputs, num_outputs)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        ON CONFLICT (tx_id) 
-        DO NOTHING
-        )");
-
-    conn->prepare(insert_transparent_outputs_prepare,
-                  R"(
-                 INSERT INTO transparent_outputs 
-                 (tx_id, output_index, recipients, value)
-                 VALUES ($1, $2, $3, $4)
-              )");
-
-    conn->prepare(insert_transparent_inputs_prepare,
-                  R"(
-                 INSERT INTO transparent_inputs 
-                 (tx_id, vin_tx_id, v_out_idx, value, senders, coinbase)
-                 VALUES ($1, $2, $3, $4, $5, $6)
-                 ON CONFLICT (tx_id) 
-                 DO NOTHING
-              )");
-
-    // Save transactions
-    if (block["tx"].size() > 0)
-    {
-        bool isCoinbaseTransaction = false;
-        std::string txid{""};
-        int version;
-        std::string prevBlockHash;
-        std::string nextBlockHash;
-        std::string merkle_root;
-        int timestamp;
-        std::string nonce;
-        std::string hash;
-        int height;
-        Json::Value transactions;
-        std::string size;
-        std::string hex;
-        std::string is_overwintered{"false"};
-        double total_public_output{0.0};
-        double total_public_input{0.0};
-        uint32_t num_inputs_in_transaction{0};
-        uint32_t num_outputs_in_transaction{0};
-
-        for (const Json::Value &tx : block["tx"])
-        {
-            try
-            {
-                version = block["version"].asInt();
-                prevBlockHash = block["previousblockhash"].asString();
-                nextBlockHash = block["previousblockhash"].asString();
-                merkle_root = block["merkleroot"].asString();
-                timestamp = block["time"].asInt();
-                std::string nonce = block["nonce"].asString();
-                Json::Value transactions = tx;
-                std::string hash = block["hash"].asString();
-                height = block["height"].asLargestInt();
-                size = tx["size"].asString();
-                hex = tx["hex"].asString();
-                is_overwintered = tx["overwintered"].asString();
-                num_inputs_in_transaction = tx["vin"].size();
-                num_outputs_in_transaction = tx["vout"].size();
-
-                // Transaction id
-                txid = tx["txid"].asString();
-
-                // Transaction inputs
-                if (tx["vin"].size() > 0)
-                {
-                    std::string vin_tx_id;
-                    uint32_t v_out_idx;
-                    std::string coinbase{""};
-                    std::optional<pqxx::row> vin_transaction_look_buffer;
-                    std::string senders{"{}"};
-
-                    double current_input_value;
-
-                    for (const Json::Value &input : tx["vin"])
-                    {
-                        try
-                        {
-                            if (input.isMember("coinbase"))
-                            {
-                                isCoinbaseTransaction = true;
-                                coinbase = input["coinbase"].asString();
-                                vin_tx_id = "-1";
-                                v_out_idx = 0; // TODO: Find a better way to represent v_out_idx for coinbase transactions.
-                                senders = "{}";
-                            }
-                            else
-                            {
-                                coinbase = "";
-                                vin_tx_id = input["txid"].asString();
-                                v_out_idx = input["vout"].asInt();
-
-                                // Find the vout referenced in this vin to get the value and add to the total public input
-                                vin_transaction_look_buffer = this->GetOutputByTransactionIdAndIndex(vin_tx_id, v_out_idx);
-                                if (vin_transaction_look_buffer.has_value())
-                                {
-                                    pqxx::row output_specified_in_vin = vin_transaction_look_buffer.value();
-                                    current_input_value = output_specified_in_vin["value"].as<double>();
-                                    total_public_input += current_input_value;
-                                    senders = output_specified_in_vin["recipients"].as<std::string>();
-                                }
-                                else
-                                {
-                                    senders = "{}";
-                                    total_public_input += 0;
-                                    current_input_value += 0;
-                                }
-                            }
-
-                            blockTransaction.exec_prepared(insert_transparent_inputs_prepare, txid, vin_tx_id, v_out_idx, current_input_value, senders, coinbase);
-                            senders = "{}";
-                        }
-                        catch (const pqxx::sql_error &e)
-                        {
-                            throw;
-                        }
-                        catch (const std::exception &e)
-                        {
-                            throw;
-                        }
-                    }
-                }
-
-                double currentOutputValue{0.0};
-
-                // Transaction outputs
-                if (tx["vout"].size() > 0)
-                {
-                    size_t outputIndex{0};
-                    std::vector<std::string> recipients;
-                    for (const Json::Value &vOutEntry : tx["vout"])
-                    {
-                        outputIndex = vOutEntry["n"].asLargestInt();
-                        currentOutputValue = vOutEntry["value"].asDouble();
-                        total_public_output += currentOutputValue;
-
-                        try
-                        {
-                            Json::Value vOutAddresses = vOutEntry["scriptPubKey"]["addresses"];
-                            std::string recipientList = "{";
-                            if (vOutAddresses.isArray() && vOutAddresses.size() > 0)
-                            {
-                                for (const Json::Value &vOutAddress : vOutAddresses)
-                                {
-                                    recipients.push_back(vOutAddress.asString());
-                                }
-
-                                if (!recipients.empty())
-                                {
-                                    recipientList += "\"" + recipients[0] + "\"";
-                                    for (size_t i = 1; i < recipients.size(); ++i)
-                                    {
-                                        recipientList += ",\"" + recipients[i] + "\"";
-                                    }
-                                }
-                            }
-
-                            recipientList += "}";
-
-                            blockTransaction.exec_prepared(insert_transparent_outputs_prepare, txid, outputIndex, recipientList, currentOutputValue);
-                            recipients.clear();
-                        }
-                        catch (const pqxx::sql_error &e)
-                        {
-                            __ERROR__(e.what());
-                            throw;
-                        }
-                        catch (const std::exception &e)
-                        {
-                            __ERROR__(e.what());
-                            throw;
-                        }
-                    }
-                }
-
-                blockTransaction.exec_prepared(insert_transactions_prepare, txid, size, is_overwintered, version, total_public_input, total_public_output, hex, hash, std::to_string(timestamp), height, num_inputs_in_transaction, num_outputs_in_transaction);
-
-                total_public_input = 0;
-                total_public_output = 0;
-            }
-            catch (const pqxx::sql_error &e)
-            {
-                __ERROR__(e.what());
-                conn->unprepare(insert_transactions_prepare);
-                conn->unprepare(insert_transparent_inputs_prepare);
-                conn->unprepare(insert_transparent_outputs_prepare);
-                throw;
-            }
-            catch (const std::exception &e)
-            {
-                __ERROR__(e.what());
-                conn->unprepare(insert_transactions_prepare);
-                conn->unprepare(insert_transparent_inputs_prepare);
-                conn->unprepare(insert_transparent_outputs_prepare);
-                throw;
-            }
-
-            // Reset local variables for the next transaction
-            isCoinbaseTransaction = false;
-        }
-    }
-
-    conn->unprepare(insert_transactions_prepare);
-    conn->unprepare(insert_transparent_inputs_prepare);
-    conn->unprepare(insert_transparent_outputs_prepare);
 }
 
 uint64_t Database::GetSyncedBlockCountFromDB()
