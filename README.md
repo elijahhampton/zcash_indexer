@@ -1,5 +1,18 @@
-# Zcash Blockchain Storage Module
-A C++ module designed to store the Zcash blockchain based on a custom schema and DB (Postgres currently supported)
+# Zcash Blockchain Indexer
+Index the Zcash blockchain
+
+# Features / Roadmap
+**Speed** 🚄
+
+**Digital Integrity Checks** 🔐
+
+**Bring your own Database** 💿
+
+**Bring your own schema** ⚙️
+
+**Real Time Indexing** Support for real time data indexing as new blocks are mined, including support for websockets to listen for new blocks. 💻
+
+**Custom Indexing Rules** Define custom inxexing rules tof ocus on specific types of transactions or data that are relevant to your use case. ⚖️
 
 # Installation and Running Instructions
 
