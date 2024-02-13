@@ -11,25 +11,31 @@
 class Block;
 class Database;
 
-struct StoreableBlockData
+using BlockData = std::variant<std::string, uint16_t, uint64_t, double>; 
+
+class Storeable
 {
-    friend class Block;
+public:
+    virtual std::map<std::string, std::vector<std::vector<BlockData>>> DataToOrmStorageMap() = 0;
+};
 
-    bool isValid{false};
-
-    const char *nonce{""};
-    uint8_t version;
-    const char *prev_block_hash{""};
-    const char *next_block_hash{""};
-    const char *merkle_root{""};
+class Block : public Storeable
+{
+private:
+    Json::Value block{Json::nullValue};
+    std::string nonce{""};
+    uint16_t version;
+    std::string prev_block_hash{""};
+    std::string next_block_hash{""};
+    std::string merkle_root{""};
     uint64_t timestamp{0};
-    uint64_t difficulty{0};
+    double difficulty{0.0};
     Json::Value transactions{Json::nullValue};
-    const char *hash{""};
+    std::string hash{""};
     uint64_t height{0};
     uint64_t size{0};
-    const char *chainwork{""};
-    const char *bits{""};
+    std::string chainwork{""};
+    std::string bits{""};
     uint64_t num_transactions{0};
 
     double total_transparent_output{0.0};
@@ -37,22 +43,6 @@ struct StoreableBlockData
     uint64_t total_outputs{0};
     uint64_t total_inputs{0};
     double total_transparent_input{0.0};
-
-    StoreableBlockData();
-    StoreableBlockData(const Block &block);
-    StoreableBlockData(Json::Value rawBlock);
-    void _storeTransparentInputs(const std::string &tx_id, const Json::Value &inputs, std::unique_ptr<pqxx::connection> &conn, const std::string &prepared_statement, pqxx::work &blockTransaction, double &total_transparent_input);
-    void _storeTransparentOutputs(const std::string &tx_id, const Json::Value &outputs, std::unique_ptr<pqxx::connection> &conn, const std::string &prepared_statement, pqxx::work &blockTransaction, double &total_public_output);
-    void ProcessBlockToStoreable(pqxx::work &blockTransaction, std::unique_ptr<pqxx::connection> &conn);
-    
-    StoreableBlockData &GetStoreableBlockData();
-};
-
-class Block
-{
-private:
-    Json::Value block{Json::nullValue};
-    StoreableBlockData storeableData;
 
 public:
     Block();
@@ -63,9 +53,16 @@ public:
     Block(Block &&rhs) = default;
     Block &operator=(Block &&rhs) = default;
 
+    virtual ~Block() = default;
+
     const bool isValid() const;
-    StoreableBlockData &GetStoreableBlockData();
     const Json::Value &GetRawJson() const;
+
+    std::map<std::string, std::vector<std::vector<BlockData>>> DataToOrmStorageMap() override;
+
+    void _storeTransparentInputs(const std::string &tx_id, const Json::Value &inputs, double &total_transparent_input, std::vector<std::vector<BlockData>> &transparent_transaction_input_values);
+    void _storeTransparentOutputs(const std::string &tx_id, const Json::Value &outputs, double &total_public_output, std::vector<std::vector<BlockData>> &transparent_transaction_output_values);
+    void ProcessBlockToStoreable(pqxx::work &blockTransaction, std::unique_ptr<pqxx::connection> &conn);
 };
 
 #endif // CHAIN_RESOURCE

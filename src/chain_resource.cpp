@@ -1,71 +1,46 @@
 #include "chain_resource.h"
 #include "database.h"
 
-StoreableBlockData::StoreableBlockData() : isValid(false) {}
+// Block
+Block::Block() {}
 
-StoreableBlockData::StoreableBlockData(const Block &block)
+Block::Block(const Json::Value &rawBlock) : nonce(rawBlock["nonce"].asCString()),
+                                            version(rawBlock["version"].asUInt64()),
+                                            prev_block_hash(rawBlock["previousblockhash"].asCString()),
+                                            next_block_hash(rawBlock["nextblockhash"].asCString()),
+                                            merkle_root(rawBlock["merkleroot"].asCString()),
+                                            timestamp(rawBlock["time"].asUInt64()),
+                                            difficulty(rawBlock["difficulty"].asUInt64()),
+                                            transactions(rawBlock["tx"]),
+                                            num_transactions(this->transactions.size()),
+                                            hash(rawBlock["hash"].asCString()),
+                                            height(rawBlock["height"].asUInt64()),
+                                            size(rawBlock["size"].asUInt64()),
+                                            chainwork(rawBlock["chainwork"].asCString()),
+                                            bits(rawBlock["bits"].asCString())
 {
-    if (block.isValid())
+    if (rawBlock.isNull() || !this->block["tx"].isArray())
     {
-        this->isValid = true;
-        const Json::Value &rawBlock = block.GetRawJson();
-
-        this->nonce = rawBlock["nonce"].asCString();
-        this->version = rawBlock["version"].asUInt64();
-        this->prev_block_hash = rawBlock["previousblockhash"].asCString();
-        this->next_block_hash = rawBlock["nextblockhash"].asCString();
-        this->merkle_root = rawBlock["merkleroot"].asCString();
-        this->timestamp = rawBlock["time"].asUInt64();
-        this->difficulty = rawBlock["difficulty"].asUInt64();
-        this->transactions = rawBlock["tx"];
-        this->hash = rawBlock["hash"].asCString();
-        this->height = rawBlock["height"].asUInt64();
-        this->size = rawBlock["size"].asUInt64();
-        this->chainwork = rawBlock["chainwork"].asCString();
-        this->bits = rawBlock["bits"].asCString();
-        this->num_transactions = this->transactions.size();
+        throw std::invalid_argument("Invalid JSON value for Block(rawBlock)");
     }
 }
 
-StoreableBlockData::StoreableBlockData(Json::Value rawBlock) : nonce(rawBlock["nonce"].asCString()),
-                                                               version(rawBlock["version"].asUInt64()),
-                                                               prev_block_hash(rawBlock["previousblockhash"].asCString()),
-                                                               next_block_hash(rawBlock["nextblockhash"].asCString()),
-                                                               merkle_root(rawBlock["merkleroot"].asCString()),
-                                                               timestamp(rawBlock["time"].asUInt64()),
-                                                               difficulty(rawBlock["difficulty"].asUInt64()),
-                                                               transactions(rawBlock["tx"]),
-                                                               num_transactions(this->transactions.size()),
-                                                               hash(rawBlock["hash"].asCString()),
-                                                               height(rawBlock["height"].asUInt64()),
-                                                               size(rawBlock["size"].asUInt64()),
-                                                               chainwork(rawBlock["chainwork"].asCString()),
-                                                               bits(rawBlock["bits"].asCString())
+const Json::Value &Block::GetRawJson() const
 {
-    if (rawBlock.isNull() || !rawBlock.isObject())
-    {
-        this->isValid = false;
-    }
-
-    this->isValid = true;
+    return this->block;
 }
 
-void StoreableBlockData::ProcessBlockToStoreable(pqxx::work &blockTransaction, std::unique_ptr<pqxx::connection> &conn)
+const bool Block::isValid() const
 {
-    conn->prepare("insert_block",
-                  "INSERT INTO blocks (hash, height, timestamp, nonce, size, num_transactions, total_block_output, difficulty, chainwork, merkle_root, version, bits, transaction_ids, num_outputs, num_inputs, total_block_input, miner) "
-                  "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) "
-                  "ON CONFLICT (hash) "
-                  "DO NOTHING;");
+    return !this->block.isNull();
+}
 
-    conn->prepare("insert_transactions",
-                  R"(
-        INSERT INTO transactions 
-        (tx_id, size, is_overwintered, version, total_public_input, total_public_output, hex, hash, timestamp, height, num_inputs, num_outputs)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        ON CONFLICT (tx_id) 
-        DO NOTHING
-        )");
+
+std::map<std::string, std::vector<std::vector<BlockData>>> Block::DataToOrmStorageMap() 
+{
+    std::map<std::string, std::vector<std::vector<BlockData>>> orm_storage_map = {
+        {"block", {}}, {"transaction", {}}, {"transparent_input", {}}, {"transparent_output", {}}
+        };
 
     try
     {
@@ -117,37 +92,31 @@ void StoreableBlockData::ProcessBlockToStoreable(pqxx::work &blockTransaction, s
 
                 double current_total_block_public_input{0.0};
                 double current_total_block_public_output{0.0};
-                this->_storeTransparentInputs(tx_id, tx["vin"], conn, "insert_transparent_inputs", blockTransaction, current_total_block_public_input);
-                this->_storeTransparentOutputs(tx_id, tx["vout"], conn, "insert_transparent_outputs", blockTransaction, current_total_block_public_output);
 
-                blockTransaction.exec_prepared("insert_transaction", tx_id, std::to_string(tx.size()), tx["overwintered"].asCString(), tx["version"].asCString(), std::to_string(current_total_block_public_input), std::to_string(current_total_block_public_output), tx["hex"].asCString(), this->hash, this->timestamp, this->height, tx["vin"].size(), static_cast<uint64_t>(tx["vout"].size()));
+                this->_storeTransparentInputs(tx_id, tx["vin"], current_total_block_public_input, orm_storage_map["transparent_input"]);
+                this->_storeTransparentOutputs(tx_id, tx["vout"], current_total_block_public_output, orm_storage_map["transparent_output"]);
 
                 this->total_transparent_input += current_total_block_public_input;
                 this->total_transparent_output += current_total_block_public_output;
 
+                orm_storage_map["transaction"].push_back({tx_id, std::to_string(tx.size()), tx["overwintered"].asCString(), tx["version"].asCString(), std::to_string(current_total_block_public_input), std::to_string(current_total_block_public_output), tx["hex"].asCString(), this->hash, this->timestamp, this->height, tx["vin"].size(), static_cast<uint64_t>(tx["vout"].size())});
                 ++currentTransactionIndex;
             }
-
-            blockTransaction.exec_prepared("insert_block", this->hash, this->height, this->timestamp, this->nonce, this->size, this->num_transactions, this->total_transparent_input, this->difficulty, this->chainwork, this->merkle_root, this->version, this->bits, this->transaction_ids_database_representation, this->total_outputs, this->total_inputs, this->total_transparent_output, "");
         }
+
+        orm_storage_map["block"].push_back({this->hash, this->height, this->timestamp, this->nonce, this->size, this->num_transactions, this->total_transparent_output, this->difficulty, this->chainwork, this->merkle_root, this->version, this->bits, this->transaction_ids_database_representation.c_str(), this->total_outputs, this->total_inputs, this->total_transparent_input, ""});
     }
     catch (const std::exception &e)
     {
         __ERROR__(e.what());
         throw;
     }
+
+    return orm_storage_map;
 }
 
-void StoreableBlockData::_storeTransparentInputs(const std::string &tx_id, const Json::Value &inputs, std::unique_ptr<pqxx::connection> &conn, const std::string &prepared_statement, pqxx::work &blockTransaction, double &total_transparent_input)
+void Block::_storeTransparentInputs(const std::string &tx_id, const Json::Value &inputs, double &total_transparent_input, std::vector<std::vector<BlockData>> &transparent_transaction_inputs_values)
 {
-    conn->prepare("insert_transparent_inputs",
-                  R"(
-                 INSERT INTO transparent_inputs 
-                 (tx_id, vin_tx_id, v_out_idx, value, senders, coinbase)
-                 VALUES ($1, $2, $3, $4, $5, $6)
-                 ON CONFLICT (tx_id) 
-                 DO NOTHING
-              )");
 
     if (inputs.size() > 0)
     {
@@ -197,10 +166,11 @@ void StoreableBlockData::_storeTransparentInputs(const std::string &tx_id, const
                     total_transparent_input += current_input_value;
                 }
 
-                blockTransaction.exec_prepared(prepared_statement, tx_id, vin_tx_id, v_out_idx, current_input_value, senders, coinbase);
-
                 senders = "{}";
                 current_input_value = 0.0;
+
+
+                transparent_transaction_inputs_values.push_back({tx_id, vin_tx_id, v_out_idx, current_input_value, senders, coinbase});
             }
             catch (const pqxx::sql_error &e)
             {
@@ -216,14 +186,8 @@ void StoreableBlockData::_storeTransparentInputs(const std::string &tx_id, const
     }
 }
 
-void StoreableBlockData::_storeTransparentOutputs(const std::string &tx_id, const Json::Value &outputs, std::unique_ptr<pqxx::connection> &conn, const std::string &prepared_statement, pqxx::work &blockTransaction, double &total_public_output)
+void Block::_storeTransparentOutputs(const std::string &tx_id, const Json::Value &outputs, double &total_public_output, std::vector<std::vector<BlockData>> &transparent_transaction_output_values)
 {
-    conn->prepare("insert_transparent_outputs",
-                  R"(
-                 INSERT INTO transparent_outputs 
-                 (tx_id, output_index, recipients, value)
-                 VALUES ($1, $2, $3, $4)
-              )");
 
     double currentOutputValue{0.0};
 
@@ -232,6 +196,7 @@ void StoreableBlockData::_storeTransparentOutputs(const std::string &tx_id, cons
     {
         size_t outputIndex{0};
         std::vector<std::string> recipients;
+        std::string recipientList;
         for (const Json::Value &vOutEntry : outputs)
         {
             try
@@ -242,7 +207,7 @@ void StoreableBlockData::_storeTransparentOutputs(const std::string &tx_id, cons
 
                 // Stringify recipient list for addresses in vout
                 Json::Value vOutAddresses = vOutEntry["scriptPubKey"]["addresses"];
-                std::string recipientList = "{";
+                recipientList = "{";
                 if (vOutAddresses.isArray() && vOutAddresses.size() > 0)
                 {
                     for (const Json::Value &vOutAddress : vOutAddresses)
@@ -259,10 +224,12 @@ void StoreableBlockData::_storeTransparentOutputs(const std::string &tx_id, cons
                         }
                     }
                 }
-
                 recipientList += "}";
-                blockTransaction.exec_prepared(prepared_statement, tx_id, outputIndex, recipientList, currentOutputValue);
+
+                transparent_transaction_output_values.push_back({tx_id, outputIndex, recipientList, currentOutputValue});
+
                 recipients.clear();
+                recipientList.clear();
             }
             catch (const pqxx::sql_error &e)
             {
@@ -276,35 +243,4 @@ void StoreableBlockData::_storeTransparentOutputs(const std::string &tx_id, cons
             }
         }
     }
-}
-
-StoreableBlockData &StoreableBlockData::GetStoreableBlockData()
-{
-    return *this;
-}
-
-// Block
-Block::Block() {}
-
-Block::Block(const Json::Value &rawBlock) : block(rawBlock), storeableData(rawBlock)
-{
-    if (rawBlock.isNull() || !this->block["tx"].isArray())
-    {
-        throw std::invalid_argument("Invalid JSON value for Block(rawBlock)");
-    }
-}
-
-const Json::Value &Block::GetRawJson() const
-{
-    return this->block;
-}
-
-StoreableBlockData &Block::GetStoreableBlockData()
-{
-    return storeableData.GetStoreableBlockData();
-}
-
-const bool Block::isValid() const
-{
-    return !this->block.isNull();
 }

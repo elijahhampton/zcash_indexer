@@ -32,6 +32,8 @@ services:
     ports:
       - "8232:8232"
       - "8233:8233"
+      - "18233:18233"
+      - "18232:18232"
     cap_add:
       - NET_ADMIN
     privileged: true

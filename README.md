@@ -1,5 +1,5 @@
-# Zcash Blockchain Syncing Module
-A C++ module designed for exploratory synchronization of the Zcash blockchain.
+# Zcash Blockchain Storage Module
+A C++ module designed to store the Zcash blockchain based on a custom schema and DB (Postgres currently supported)
 
 ## Installation
 
@@ -10,9 +10,6 @@ Before building the project, ensure you have all the necessary libraries install
 Install openssl, json-rpc-cpp, jsoncpp, libpqxx, and the Boost libraries:
 ```bash
 brew install openssl json-rpc-cpp jsoncpp libpqxx boost
-
-# As json-rpc-cpp is not a common library, it might not be available via Homebrew. You might need to install it from source or find an alternative method.
-```
 
 Note:
 The json-rpc-cpp, libpqxx, and jsoncpp libraries are specified here for installation via Homebrew, but please note that not all libraries may be available via Homebrew, or the library names may be different in Homebrew.
@@ -51,18 +48,6 @@ make clean
 ```bash
 ./syncer
 ```
-
-## Debugging with LLDB
-### Launching LLDB with Target Executable:
-This command launches LLDB and loads syncer as the target executable. LLDB should now be awaiting further commands.
-```bash
-lldb syncer
-```
-
-### Running the executable
-This command tells LLDB to run the syncer executable. Execution will proceed until a breakpoint is hit, or the program exits or crashes.
-```bash
-run
 ```
 
 

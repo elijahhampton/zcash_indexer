@@ -12,6 +12,9 @@
 #include <chrono>
 #include <fstream>
 #include <queue>
+#include <string>
+#include <iostream>
+#include <variant>
 #include <limits>
 #include <jsonrpccpp/common/jsonparser.h>
 
@@ -23,7 +26,7 @@
 #ifndef DATABASE_H
 #define DATABASE_H
 
-class Block;
+class ManagedConnection;
 
 class Database
 {
@@ -39,26 +42,13 @@ private:
     static bool is_connected;
     static bool is_database_setup;
 
+    void BatchInsertStatements(pqxx::work &batch_insert_txn, const std::string& table_name, const std::vector<std::string> &columns, const std::vector<std::vector<BlockData>>&) const;
+
     /**
      * Shuts down all connections in the connection pool.
      * Closes each connection and clears the pool.
      */
     void ShutdownConnections();
-
-    /**
-     * Releases a database connection back to the connection pool.
-     *
-     * @param conn A unique pointer to the pqxx connection to be released.
-     */
-    static void ReleaseConnection(std::unique_ptr<pqxx::connection> conn);
-
-    /**
-     * Retrieves a database connection from the connection pool.
-     * Waits for a connection to become available if the pool is empty.
-     *
-     * @return A unique pointer to the pqxx connection.
-     */
-    static std::unique_ptr<pqxx::connection> GetConnection();
 
     /**
      * Updates the checkpoint for a specific chunk.
@@ -73,14 +63,14 @@ private:
      *
      * @param blockHeight The height of the block that was missed.
      */
-    void AddMissedBlock(size_t blockHeight) const;
+    void AddMissedBlock(size_t blockHeight);
 
     /**
      * Removes a block height from the list or set of missed blocks.
      *
      * @param blockHeight The height of the block to remove from missed blocks.
      */
-    void RemoveMissedBlock(size_t blockHeight) const;
+    void RemoveMissedBlock(size_t blockHeight);
 
     /**
      * Establishes connections to the database.
@@ -119,28 +109,20 @@ private:
      * @param chunkEndHeight The ending height of the chunk.
      * @param trueRangeStartHeight The true starting height of the range. Defaults to 0 if not provided.
      */
-    void StoreChunk(const std::vector<Block> &chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight = Database::InvalidHeight);
-
-    /**
-     * Stores transactions related to a block in the database.
-     *
-     * @param block The block containing the transactions.
-     * @param conn A unique pointer to the database connection.
-     * @param blockTransaction The transaction object for the block.
-     */
-    void StoreTransactions(const Json::Value &block, const std::unique_ptr<pqxx::connection> &conn, pqxx::work &blockTransaction);
-
+    void BatchStoreBlocks(std::vector<Block> &chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight = Database::InvalidHeight);
+    
     /**
      * Stores connected peers to the peersinfo table.
      *
      * @param peer_info JSON array containing information about connected peers.
-     */
-    void StorePeers(const Json::Value &peer_info);
+    */
+    void StorePeers(const Json::Value& peer_info);
 
-    void StoreChainInfo(const Json::Value &chain_info);
-
+    void StoreChainInfo(const Json::Value& chain_info);
+    
 public:
     static const uint64_t InvalidHeight{std::numeric_limits<uint64_t>::max()};
+
     struct Checkpoint
     {
         size_t chunkStartHeight;
@@ -164,13 +146,76 @@ public:
     Database(Database &&rhs) noexcept = default;
     Database &operator=(Database &&rhs) noexcept = default;
 
-    template <typename... Args>
-    static std::optional<const pqxx::result> ExecuteRead(const char *sql, Args... args);
+    /*
+     * Releases a database connection back to the connection pool.
+     *
+     * @param conn A unique pointer to the pqxx connection to be released.
+     */
+    void ReleaseConnection(std::unique_ptr<pqxx::connection> conn);
 
+    /**
+     * Retrieves a database connection from the connection pool.
+     * Waits for a connection to become available if the pool is empty.
+     *
+     * @return A unique pointer to the pqxx connection.
+     */
+    std::unique_ptr<pqxx::connection> GetConnection();
+
+  template <typename... Args>
+static std::optional<const pqxx::result> ExecuteRead(std::string sql, Args... args)
+{
+    try
+    {
+        std::unique_lock<std::mutex> lock(Database::cs_connection_pool);
+        auto conn = std::move(Database::connection_pool.front());
+        connection_pool.pop();
+
+        if (conn == nullptr || !conn->is_open())
+        {
+            __ERROR__("------Invalid connection: connection is null or not open.--------");
+            throw std::runtime_error("------Invalid connection: connection is null or not open.--------");
+        }
+
+        pqxx::read_transaction read_transaction(*conn);
+        pqxx::result read_result = read_transaction.exec_params(sql, args...);
+        read_transaction.commit();
+        return read_result;
+    }
+    catch (const std::exception &e)
+    {
+        __ERROR__(e.what());
+        return std::nullopt;
+    }
+}
+
+    // Functions related to the indexing process
     uint64_t GetSyncedBlockCountFromDB();
     std::optional<pqxx::row> GetOutputByTransactionIdAndIndex(const std::string &txid, uint64_t v_out_index);
     std::stack<Database::Checkpoint> GetUnfinishedCheckpoints();
     std::optional<Database::Checkpoint> GetCheckpoint(signed int chunkStartHeight);
+};
+
+class ManagedConnection {
+public:
+    ManagedConnection(Database& db) : db_(db), conn_(db.GetConnection()) {}
+
+    ~ManagedConnection() {
+        db_.ReleaseConnection(std::move(conn_));
+    }
+
+// Overload the dereference operator to return a reference to the pqxx::connection
+    pqxx::connection& operator*() const {
+        return *conn_;
+    }
+
+    // Overload the arrow operator to return the pointer to pqxx::connection
+    pqxx::connection* operator->() const {
+        return conn_.get();
+    }
+
+private:
+    Database& db_;
+    std::unique_ptr<pqxx::connection> conn_;
 };
 
 #endif // DATABASE_H
