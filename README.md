@@ -10,7 +10,7 @@ Index the Zcash blockchain
 
 **Bring your own schema** ⚙️
 
-**Real Time Indexing** Support for real time data indexing as new blocks are mined, including support for websockets to listen for new blocks. 💻
+**Real Time Indexing** Support for real time data indexing as new blocks are mined, including support for server side events for block notifications. 💻
 
 **Custom Indexing Rules** Define custom inxexing rules tof ocus on specific types of transactions or data that are relevant to your use case. ⚖️
 
