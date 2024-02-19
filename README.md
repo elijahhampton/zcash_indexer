@@ -1,53 +1,63 @@
-# Zcash Blockchain Storage Module
-A C++ module designed to store the Zcash blockchain based on a custom schema and DB (Postgres currently supported)
+# Zcash Blockchain Indexer
+Index the Zcash blockchain
 
-## Installation
+# Features / Roadmap
+**Speed** 🚄
 
-## Installing Dependencies
+**Digital Integrity Checks** 🔐
 
-Before building the project, ensure you have all the necessary libraries installed. If you are on macOS, you can use Homebrew to install these dependencies. Below are the commands to install the libraries listed in the Makefile:
+**Bring your own Database** 💿
 
-Install openssl, json-rpc-cpp, jsoncpp, libpqxx, and the Boost libraries:
+**Bring your own schema** ⚙️
+
+**Real Time Indexing** Support for real time data indexing as new blocks are mined, including support for server side events for block notifications. 💻
+
+**Custom Indexing Rules** Define custom inxexing rules tof ocus on specific types of transactions or data that are relevant to your use case. ⚖️
+
+# Installation and Running Instructions
+
+This guide provides instructions on how to build, install, and run the application using Docker Compose and a provided Makefile.
+
+## Prerequisites
+
+Before proceeding, ensure you have the following installed on your system:
+- Docker
+- Docker Compose
+- Make (optional, for building the application using the Makefile)
+
+## Configuration
+
+1. Clone the repository to your local machine.
+
+2. Ensure Docker and Docker Compose are installed and running on your system.
+
+3. Set up environment variables for sensitive data such as `DB_PASSWORD`, `RPC_PASSWORD`, and `ZCASHD_RPCPASSWORD`. This can be done by creating a `.env` file in the root directory of the project with the following content:
+
+    ```env
+    
+    DB_PASSWORD=your_db_password_here
+    RPC_PASSWORD=your_rpc_password_here
+    BLOCK_CHUNK_PROCESSING_SIZE=desired_block_chunk_processing_size
+    
+    If you are not running the indexer locally adjust as you see fit:
+    DB_HOST=your_db_host_here
+    DB_PORT=your_db_port_here
+    DB_USER=your_db_user_here
+    RPC_USER=your_rpc_username_here
+    
+    ```
+## Building the Application
+
+You can build the application using Docker Compose or the Makefile.
+
+### Using Docker Compose
+
+To build the application with Docker Compose, run the following command in the terminal from the root directory of the project:
+
 ```bash
-brew install openssl json-rpc-cpp jsoncpp libpqxx boost
+docker-compose build
 
-Note:
-The json-rpc-cpp, libpqxx, and jsoncpp libraries are specified here for installation via Homebrew, but please note that not all libraries may be available via Homebrew, or the library names may be different in Homebrew.
-For libraries not available via Homebrew, you may need to download and install them manually from their respective websites or repositories.
-If you're on a different operating system, you'll need to use its respective package manager or install the libraries manually.
-Once you have installed all the necessary libraries, you can proceed to build the project as described in the previous section.
-
-## Configuration and Local Setup
-
-**Running PostgreSQL with Docker**
-
-To run PostgreSQL locally using Docker, follow these steps:
-
-**Install Docker**
-
-If you haven't already, install Docker from the official website.
-
-**Run PostgreSQL Container and Connect to PostgreSQL**
-```bash
-docker pull postgres
-docker run --name some-postgres -e POSTGRES_PASSWORD=mysecretpassword -d postgres
-
-```
-
-## Building the Executable
-To build the executable, simply navigate to the project directory in your terminal and run:
-```bash
-make
-```
-To clean up the build artificats, run:
-```bash
-make clean 
-```
-
-## Executing the program
-```bash
-./syncer
-```
-```
-
+Using Makefile
+To build the application using the Makefile, run the following command in the terminal from the root directory of the project:
+make build
 
