@@ -26,7 +26,7 @@ services:
       - zcash_params:/srv/zcashd/.zcash-params
     environment:
       ZCASHD_NETWORK: "testnet" 
-      ZCASHD_RPCPASSWORD: ${ZCASHD_RPCPASSWORD}
+      ZCASHD_RPCPASSWORD: ${RPC_PASSWORD}
       ZCASHD_RPCUSER: user
       ZCASHD_ALLOWIP: "0.0.0.0/0"
     ports:
