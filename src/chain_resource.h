@@ -2,6 +2,7 @@
 #include <vector>
 #include <string>
 #include <pqxx/pqxx>
+#include <variant>
 #include <memory>
 #include "logger.h"
 

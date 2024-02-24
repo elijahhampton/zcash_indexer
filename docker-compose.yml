@@ -14,8 +14,8 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       RPC_URL: host.docker.internal:8232
       RPC_USERNAME: user
-      RPC_PASSWORD: ${RPC_PASSWORD}
-      BLOCK_CHUNK_PROCESSING_SIZE: ${BLOCK_CHUNK_PROCESSING_SIZE}
+      RPC_PASSWORD: password
+      BLOCK_CHUNK_PROCESSING_SIZE: 10000
       ALLOW_MULTIPLE_THREADS: true
 
   zcash_zcashd:
@@ -26,7 +26,7 @@ services:
       - zcash_params:/srv/zcashd/.zcash-params
     environment:
       ZCASHD_NETWORK: "testnet" 
-      ZCASHD_RPCPASSWORD: ${RPC_PASSWORD}
+      ZCASHD_RPCPASSWORD: password
       ZCASHD_RPCUSER: user
       ZCASHD_ALLOWIP: "0.0.0.0/0"
     ports:
@@ -45,7 +45,7 @@ services:
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: password
     ports:
       - "5432:5432"
 
