@@ -72,7 +72,7 @@ void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, boo
         this->DownloadBlocks(downloadedBlocks, segmentStartIndex, segmentEndIndex);
 
         __INFO__("Starting new thread to sync chunk for checkpoint.");
-        this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex, rangeStart] mutable
+        this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex, rangeStart] () mutable
                                      { 
                                         this->database.BatchStoreBlocks(capturedDownloadedBlocks, segmentStartIndex, segmentEndIndex, rangeStart); 
                                         this->worker_pool.TaskCompleted(); });
@@ -89,7 +89,7 @@ void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, boo
             this->DownloadBlocks(downloadedBlocks, segmentStartIndex, segmentEndIndex);
 
             __INFO__("Starting new thread to sync chunk.");
-            this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex] mutable
+            this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex] () mutable
                                          { 
                                         this->database.BatchStoreBlocks(capturedDownloadedBlocks, segmentStartIndex, segmentEndIndex, segmentStartIndex); 
                                         this->worker_pool.TaskCompleted(); });
