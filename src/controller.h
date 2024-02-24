@@ -39,7 +39,9 @@ public:
     void StartSync();
     void StartMonitoringPeers();
     void StartMonitoringChainInfo();
-    void JoinJoinableSyncingOperations();
+    void DetachSyncingOperations();
+    void do_accept(tcp_acceptor &tcp_acceptor, boost::asio::io_context& ioc);
+    void do_session(tcp::socket session_socket, net::io_context& ioc)
 };
 
 #endif // CONTROLLER_H

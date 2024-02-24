@@ -8,9 +8,9 @@
 
 class Config {
 public:
-    static std::string getEnv(const char* key, const std::string& defaultValue = "") {
+    static std::string getEnvAsString(const char* key, const std::string& defaultValue = "") {
         char* val = std::getenv(key);
-        if (val == nullptr) {  
+        if (val == nullptr) {
             if (defaultValue.empty()) {
                 throw std::runtime_error(std::string("Environment variable ") + key + " is not set.");
             }
@@ -19,44 +19,63 @@ public:
         return std::string(val);
     }
 
+    static int getEnvAsInt(const char* key, int defaultValue) {
+        std::string valStr = getEnvAsString(key, std::to_string(defaultValue));
+        return std::stoi(valStr);
+    }
+
+    static bool getEnvAsBool(const char* key, bool defaultValue) {
+        std::string valStr = getEnvAsString(key, defaultValue ? "true" : "false");
+        std::transform(valStr.begin(), valStr.end(), valStr.begin(), ::tolower);
+        return valStr == "true" || valStr == "1";
+    }
+
     static std::string getDatabaseHost() {
-        return getEnv("DB_HOST", "localhost");
+        return getEnvAsString("DB_HOST", "localhost");
     }
 
     static std::string getDatabasePort() {
-        return getEnv("DB_PORT", "5432");  // Default PostgreSQL port
+        return getEnvAsString("DB_PORT", "5432");  // Default PostgreSQL port
     }
 
     static std::string getDatabaseName() {
-        return getEnv("DB_NAME", "postgres");
+        return getEnvAsString("DB_NAME", "postgres");
     }
 
     static std::string getDatabaseUser() {
-        return getEnv("DB_USER", "postgres");
+        return getEnvAsString("DB_USER", "postgres");
     }
 
     static std::string getDatabasePassword() {
-        return getEnv("DB_PASSWORD", "mysecretpassword");
+        return getEnvAsString("DB_PASSWORD", "mysecretpassword");
     }
 
     static std::string getRpcUrl() {
-        return getEnv("RPC_URL", "8232");
+        return getEnvAsString("RPC_URL", "127.0.0.1:18232");
     }
 
     static std::string getRpcUsername() {
-        return getEnv("RPC_USERNAME", "user");
+        return getEnvAsString("RPC_USERNAME", "user");
     }
 
     static std::string getRpcPassword() {
-        return getEnv("RPC_PASSWORD", "password");
+        return getEnvAsString("RPC_PASSWORD", "password");
     }
 
-    static std::string getBlockChunkProcessingSize() {
-        return getEnv("BLOCK_CHUNK_PROCESSING_SIZE", "500");
+    static int getBlockChunkProcessingSize() {
+        return getEnvAsInt("BLOCK_CHUNK_PROCESSING_SIZE", 500);
     }
 
-    static std::string getAllowMultipleThreads() {
-        return getEnv("ALLOW_MULTIPLE_THREADS", "false");
+    static int8_t getAllowMultipleThreads() {
+        return getEnvAsInt("ALLOW_MULTIPLE_THREADS", 1);
+    }
+
+    static int8_t getMonitorPeers() {
+        return getEnvAsInt("MONITOR_PEERS", 1);
+    }
+
+    static int8_t getMonitorChainInfo() {
+        return getEnvAsInt("MONITOR_CHAIN_INFO", 1);
     }
 
 };
