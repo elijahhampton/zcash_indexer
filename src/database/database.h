@@ -11,13 +11,15 @@
 #include <thread>
 #include <chrono>
 #include <fstream>
+#include <numeric>
 #include <queue>
 #include <limits>
 #include <jsonrpccpp/common/jsonparser.h>
 
-#include "httpclient.h"
-#include "logger.h"
-#include "controller.h"
+
+#include "../http/httpclient.h"
+#include "../controllers/controller.h"
+#include "spdlog/spdlog.h"
 
 #ifndef DATABASE_H
 #define DATABASE_H
@@ -30,18 +32,18 @@ friend class Controller;
 friend class Syncer;
 
 private:
-    std::queue<std::unique_ptr<pqxx::connection>> mutable connection_pool;
-    std::mutex mutable cs_connection_pool;
-    std::condition_variable mutable cv_connection_pool;
+    static std::queue<std::unique_ptr<pqxx::connection>> connection_pool;
+    static std::mutex  cs_connection_pool;
+    static std::condition_variable  cv_connection_pool;
 
-    bool is_connected{false};
-    bool is_database_setup{false};
+    static bool is_connected;
+    static bool is_database_setup;
 
 /**
      * Shuts down all connections in the connection pool.
      * Closes each connection and clears the pool.
      */
-    void ShutdownConnections();
+    static void ShutdownConnections();
 
     /**
      * Updates the checkpoint for a specific chunk.
@@ -65,13 +67,16 @@ private:
      */
     void RemoveMissedBlock(size_t blockHeight);
 
-    /**
-     * Establishes connections to the database.
-     *
-     * @param poolSize The number of connections to establish in the connection pool.
-     * @param connection_string The connection string used to connect to the database.
-     */
-    void Connect(size_t poolSize, const std::string& connection_string);
+    const std::string CreateTransactionIdSqlRepresentation(const Json::Value& transactions, int start, int end) const;
+    void ExecuteTableCreationQuery(const std::string& query, const std::string& tableName);
+    void createBlocksTable();
+    void createTransactionsTable();
+    void createCheckpointsTable();
+    void createTransparentInputsTable();
+    void createTransparentOutputsTable();
+    void createPeerInfoTable();
+    void createChainInfoTable();
+
 
     /**
      * Creates necessary tables in the database.
@@ -130,7 +135,16 @@ public:
         size_t lastCheckpoint;
     };
 
-        /**
+    /**
+     * Establishes connections to the database.
+     *
+     * @param poolSize The number of connections to establish in the connection pool.
+     * @param connection_string The connection string used to connect to the database.
+     */
+    static void Connect(size_t poolSize, const std::string& connection_string);
+
+
+    /**
      * Releases a database connection back to the connection pool.
      *
      * @param conn A unique pointer to the pqxx connection to be released.
@@ -176,7 +190,7 @@ public:
         db_.ReleaseConnection(std::move(conn_));
     }
 
-// Overload the dereference operator to return a reference to the pqxx::connection
+    // Overload the dereference operator to return a reference to the pqxx::connection
     pqxx::connection& operator*() const {
         return *conn_;
     }

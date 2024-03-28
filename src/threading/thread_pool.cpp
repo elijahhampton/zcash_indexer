@@ -1,4 +1,4 @@
-#include "thread_pool.h"
+#include "../threading/thread_pool.h"
 #include <boost/bind/bind.hpp>
 #include <thread>
 
@@ -6,7 +6,7 @@ const uint8_t ThreadPool::MAX_HARDWARE_THREADS = std::thread::hardware_concurren
 
 ThreadPool::ThreadPool() : work(new boost::asio::io_service::work(this->io_service)), active_task(0)
 {
-    __DEBUG__(("Creating " + std::to_string(ThreadPool::MAX_HARDWARE_THREADS) + " worker threads.").c_str());
+    spdlog::debug(("Creating " + std::to_string(ThreadPool::MAX_HARDWARE_THREADS) + " worker threads.").c_str());
     for (size_t i = 0; i < ThreadPool::MAX_HARDWARE_THREADS; ++i)
     {
         this->worker_threads.create_thread(
@@ -16,7 +16,7 @@ ThreadPool::ThreadPool() : work(new boost::asio::io_service::work(this->io_servi
 
 void ThreadPool::TaskCompleted()
 {
-    __INFO__("ThreadPool::TaskCompleted");
+    spdlog::info("ThreadPool::TaskCompleted");
     std::lock_guard<std::mutex> cs_task_lock(cs_task_mutex);
     --this->active_task;
     cv_task.notify_one();
@@ -24,7 +24,7 @@ void ThreadPool::TaskCompleted()
 
 void ThreadPool::RefreshThreadPool()
 {
-    __INFO__(("Refreshing thread pool. Active task=: " + std::to_string(this->active_task)).c_str());
+    spdlog::info(("Refreshing thread pool. Active task=: " + std::to_string(this->active_task)).c_str());
 
     if (this->active_task > 0) {
         this->worker_threads.join_all();
@@ -47,7 +47,7 @@ void ThreadPool::RefreshThreadPool()
 
 void ThreadPool::InitNewWork()
 {
-    __INFO__("Resetting IO Service and creating new work.");
+    spdlog::info("Resetting IO Service and creating new work.");
     if (this->io_service.stopped())
     {
         this->io_service.reset();

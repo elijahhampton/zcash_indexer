@@ -1,6 +1,6 @@
-#include "syncer.h"
+#include "../sync/syncer.h"
 #include <algorithm>
-#include "httpclient.h"
+#include "../http/httpclient.h"
 #include <iostream>
 #include <string>
 #include <optional>
@@ -14,12 +14,10 @@
 #include <boost/process.hpp>
 #include <fstream>
 #include <queue>
-#include "config.h"
 
-size_t Syncer::CHUNK_SIZE = std::stoi(Config::getBlockChunkProcessingSize());
 const uint8_t Syncer::MAX_CONCURRENT_THREADS = std::thread::hardware_concurrency();
 
-Syncer::Syncer(CustomClient &httpClientIn, Database &databaseIn) : httpClient(httpClientIn), database(databaseIn), latestBlockSynced{0}, latestBlockCount{0}, isSyncing{false}, worker_pool{ThreadPool()}
+Syncer::Syncer(CustomClient &httpClientIn, Database &databaseIn, uint64_t chunk_size) : httpClient(httpClientIn), database(databaseIn), latestBlockSynced{0}, latestBlockCount{0}, isSyncing{false}, worker_pool{ThreadPool()}, block_chunk_processing_size{chunk_size}
 {
 }
 
@@ -40,9 +38,9 @@ void Syncer::DoConcurrentSyncOnChunk(const std::vector<size_t> &chunkToProcess)
 
 size_t Syncer::GetNextSegmentIndex(size_t chunkEndpoint, size_t segmentStart)
 {
-    if (chunkEndpoint - segmentStart + 1 >= Syncer::CHUNK_SIZE)
+    if (chunkEndpoint - segmentStart + 1 >= Syncer::block_chunk_processing_size)
     {
-        return segmentStart + Syncer::CHUNK_SIZE - 1;
+        return segmentStart + Syncer::block_chunk_processing_size - 1;
     }
 
     return chunkEndpoint;
@@ -59,8 +57,8 @@ void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, boo
         std::optional<Database::Checkpoint> checkpointOpt = this->database.GetCheckpoint(rangeStart);
         if (!checkpointOpt.has_value())
         {
-            __ERROR__(("Expected checkpoint for height: " + std::to_string(rangeStart)).c_str());
-            __ERROR__("Invalid checkpoint where expected");
+            spdlog::error(("Expected checkpoint for height: " + std::to_string(rangeStart)).c_str());
+            spdlog::error("Invalid checkpoint where expected");
             exit(1);
             throw std::runtime_error("Invalid checkpoint where expected.");
         }
@@ -71,7 +69,7 @@ void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, boo
         downloadedBlocks.reserve(segmentEndIndex - segmentStartIndex);
         this->DownloadBlocks(downloadedBlocks, segmentStartIndex, segmentEndIndex);
 
-            __INFO__("Starting new thread to sync chunk for checkpoint.");
+        spdlog::info("Starting new thread to sync chunk for checkpoint.");
         this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex, rangeStart]
                                      { 
                                         this->database.StoreChunk(capturedDownloadedBlocks, segmentStartIndex, segmentEndIndex, rangeStart); 
@@ -88,7 +86,7 @@ void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, boo
             downloadedBlocks.reserve(segmentEndIndex - segmentStartIndex);
             this->DownloadBlocks(downloadedBlocks, segmentStartIndex, segmentEndIndex);
 
-            __INFO__("Starting new thread to sync chunk.");
+            spdlog::info("Starting new thread to sync chunk.");
             this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex]
                                          { 
                                         this->database.StoreChunk(capturedDownloadedBlocks, segmentStartIndex, segmentEndIndex, segmentStartIndex); 
@@ -104,13 +102,13 @@ void Syncer::StartSyncLoop()
 {
     const std::chrono::hours syncInterval(6);
 
-    while (this->run_syncing)
+    while (run_syncing)
     {
         std::lock_guard<std::mutex> syncLock(cs_sync);
 
-        if (this->ShouldSyncWallet())
+        if (ShouldSyncWallet())
         {
-            this->Sync();
+            Sync();
         }
 
         std::this_thread::sleep_for(syncInterval);
@@ -161,7 +159,7 @@ void Syncer::SyncUnfinishedCheckpoints(std::stack<Database::Checkpoint> &checkpo
     // Sync unfinished checkpoints
     Database::Checkpoint currentCheckpoint;
 
-    __DEBUG__(("Syncing " + std::to_string(checkpoints.size()) + " checkpoints.").c_str());
+    spdlog::debug(("Syncing " + std::to_string(checkpoints.size()) + " checkpoints.").c_str());
     while (!checkpoints.empty())
     {
         currentCheckpoint = checkpoints.top();
@@ -169,7 +167,7 @@ void Syncer::SyncUnfinishedCheckpoints(std::stack<Database::Checkpoint> &checkpo
         uint64_t startHeight = currentCheckpoint.chunkStartHeight;
         uint64_t endHeight = currentCheckpoint.chunkEndHeight;
 
-        __DEBUG__(("Starting sync on checkpoint with start block height: " + std::to_string(startHeight)).c_str());
+        spdlog::debug(("Starting sync on checkpoint with start block height: " + std::to_string(startHeight)).c_str());
         this->DoConcurrentSyncOnRange(startHeight, endHeight, true);
 
         checkpoints.pop();
@@ -182,63 +180,69 @@ void Syncer::Sync()
     {
         this->isSyncing = true;
 
+        // Allow any threads in the thread pool to complete before starting a new syncing session.
         if (!this->worker_pool.isEmpty()) {
             this->worker_pool.RefreshThreadPool();
         }
 
+        // Complete any previous attempts to sync chunks of blocks before starting the new session
         std::stack<Database::Checkpoint> checkpoints = this->database.GetUnfinishedCheckpoints();
         if (!checkpoints.empty())
         {
-            __DEBUG__("Syncing path: Unfinished checkpoints");
+            spdlog::debug("Syncing path: Unfinished checkpoints");
             this->SyncUnfinishedCheckpoints(checkpoints);
             this->worker_pool.RefreshThreadPool();
         }
-
-        // Sync new blocks
+        
+        // Set the current total block count in the chain
         this->LoadTotalBlockCountFromChain();
+        // Set the latest synced block
         this->LoadSyncedBlockCountFromDB();
-        uint64_t numNewBlocks = this->latestBlockCount - this->latestBlockSynced;
+
+        uint64_t latestBlockCountVal = this->latestBlockCount.load();
+        uint64_t latestSyncedBlockHeightVal = this->latestBlockSynced.load();
+        uint64_t numNewBlocks = latestBlockCountVal - latestSyncedBlockHeightVal;
 
         if (numNewBlocks == 0)
         {
-            this->isSyncing = false;
+            isSyncing = false;
             return;
         }
-        else if (numNewBlocks >= CHUNK_SIZE)
+        else if (numNewBlocks >= block_chunk_processing_size)
         {
-            __DEBUG__("Syncing path: By range");
-            uint64_t startRangeChunk = this->latestBlockSynced == 0 ? this->latestBlockSynced : this->latestBlockSynced + 1;
-            this->DoConcurrentSyncOnRange(true, startRangeChunk, this->latestBlockCount);
+            spdlog::debug("Syncing path: By range");
+
+            uint64_t startRangeChunk = latestSyncedBlockHeightVal == 0 ? latestSyncedBlockHeightVal : latestSyncedBlockHeightVal + 1;
+            this->DoConcurrentSyncOnRange(startRangeChunk, latestBlockCountVal, false);
         }
         else
         {
-            __DEBUG__("Syncing path: By chunk");
-            std::vector<size_t> heights;
-            size_t totalBlocksToSync = this->latestBlockCount - this->latestBlockSynced;
-            heights.reserve(totalBlocksToSync);
-
-            for (size_t i = 1; i <= totalBlocksToSync; i++)
-            {
-                heights.push_back(this->latestBlockSynced + i);
-            }
-
+            spdlog::debug("Syncing path: By chunk");
+            
+            size_t block_chunk = latestBlockCountVal - latestSyncedBlockHeightVal;
+            std::vector<size_t> heights(block_chunk);
+            
+            // Populate the vector with the appropriate heihgts starting at the latest block synced
+            std::iota(heights.begin(), heights.end(), latestSyncedBlockHeightVal + 1);
             this->DoConcurrentSyncOnChunk(heights);
         }
 
+        // Refresh the worker thread pool and allow all work to complete before ending the sync
         this->worker_pool.RefreshThreadPool();
         this->isSyncing = false;
     }
     catch (std::exception &e)
     {
-        std::cout << e.what() << std::endl;
+        // Throw runtime error if syncing operation fails
+        throw std::runtime_error(e.what());
     }
 }
 
 void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlocks, std::vector<size_t> heightsToDownload) 
 {
-    __DEBUG__("Downloading blocks: DownloadBlocksFromHeights");
+    spdlog::debug("Downloading blocks: DownloadBlocksFromHeights");
     auto numHeightsToDownload{heightsToDownload.size()};
-    if (numHeightsToDownload > Syncer::CHUNK_SIZE)
+    if (numHeightsToDownload > Syncer::block_chunk_processing_size)
     {
         throw std::runtime_error("Desired download size is greater than allowed per configuration");
     }
@@ -260,36 +264,32 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
 
             if (blockResultSerialized.isNull())
             {
-                ++i;
-                continue;
-            }
+                downloadedBlocks.push_back(Json::nullValue);
+                throw new std::exception();
+            } 
 
             downloadedBlocks.push_back(blockResultSerialized);
-            blockResultSerialized.clear();
-            getblockParams.clear();
         }
         catch (jsonrpc::JsonRpcException &e)
         {
-            __ERROR__(e.what());
-            ++i;
-            getblockParams.clear();
-            continue;
+            spdlog::error(e.what());
+            this->database.AddMissedBlock(i);
         }
         catch (std::exception &e)
         {
-            __ERROR__(e.what());
-            ++i;
-            getblockParams.clear();
-            continue;
+            spdlog::error(e.what());
+            this->database.AddMissedBlock(i);
         }
 
         ++i;
+        getblockParams.clear();
+        blockResultSerialized.clear();
     }
 }
 
 void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t startRange, uint64_t endRange) 
 {
-    __DEBUG__("Downloading blocks: DownloadBlocks");
+    spdlog::debug("Downloading blocks: DownloadBlocks");
 
     std::lock_guard<std::mutex> lock(this->httpClientMutex);
     Json::Value getblockParams{Json::nullValue};
@@ -306,6 +306,7 @@ void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t s
 
             if (blockResultSerialized.isNull())
             {
+                downloadBlocks.push_back(Json::nullValue);
                 throw new std::exception();
             }
 
@@ -313,26 +314,32 @@ void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t s
         }
         catch (jsonrpc::JsonRpcException &e)
         {
-            __ERROR__(e.what());
+            spdlog::error(e.what());
             this->database.AddMissedBlock(startRange);
-            downloadBlocks.push_back(Json::nullValue);
         }
         catch (std::exception &e)
         {
-            __ERROR__(e.what());
+            spdlog::error(e.what());
             this->database.AddMissedBlock(startRange);
-            downloadBlocks.push_back(Json::nullValue);
         }
 
         blockResultSerialized.clear();
         getblockParams.clear();
-        startRange++;
+        ++startRange;
     }
 }
 
 void Syncer::LoadSyncedBlockCountFromDB()
 {
-    this->latestBlockSynced = this->database.GetSyncedBlockCountFromDB();
+    try 
+    {
+        this->latestBlockSynced.store(this->database.GetSyncedBlockCountFromDB());
+    }
+    catch (std::exception &e)
+    {
+        spdlog::error(e.what());
+        exit(1);
+    }
 }
 
 void Syncer::LoadTotalBlockCountFromChain()
@@ -340,38 +347,49 @@ void Syncer::LoadTotalBlockCountFromChain()
     try
     {
         std::lock_guard<std::mutex> lock(httpClientMutex);
-        this->latestBlockCount = httpClient.getblockcount().asLargestUInt();
+        this->latestBlockCount.store(httpClient.getblockcount().asLargestUInt());
     }
     catch (jsonrpc::JsonRpcException &e)
     {
-        if (std::string(e.what()).find("Loading block index") != std::string::npos)
+        const std::string errorMessage = e.what();
+        if (errorMessage.find("Loading block index") != std::string::npos
+            || errorMessage.find("Verifying blocks") != std::string::npos
+            || errorMessage.find("Rewinding blocks if needed") != std::string::npos
+            || errorMessage.find("Starting network threads") != std::string::npos
+            || errorMessage.find("Done loading") != std::string::npos)
         {
-            while (std::string(e.what()).find("Loading block index") != std::string::npos && std::string(e.what()).find("Verifying blocks") != std::string::npos)
-            {
-                __INFO__("JSON RPC starting...");
-            }
+            spdlog::info("JSON RPC starting...");
 
-            this->LoadTotalBlockCountFromChain();
+            // Wait for 10 seconds before retrying
+            std::this_thread::sleep_for(std::chrono::seconds(10)); 
+
+            // Retry
+            this->LoadTotalBlockCountFromChain(); 
+        }
+        else
+        {
+            spdlog::error(errorMessage);
+            throw; // Rethrow the exception if it's not a known error message
         }
     }
     catch (std::exception &e)
     {
-        __ERROR__(e.what());
+        spdlog::error(e.what());
         exit(1);
     }
 }
 
 bool Syncer::ShouldSyncWallet()
 {
-    if (this->isSyncing)
+    if (isSyncing)
     {
         return false;
     }
 
-    this->LoadTotalBlockCountFromChain();
-    this->LoadSyncedBlockCountFromDB();
+    LoadTotalBlockCountFromChain();
+    LoadSyncedBlockCountFromDB();
 
-    if (!this->isSyncing && (this->latestBlockSynced < this->latestBlockCount))
+    if (!isSyncing && (latestBlockSynced.load() < latestBlockCount.load()))
     {
         return true;
     }
@@ -381,22 +399,22 @@ bool Syncer::ShouldSyncWallet()
 
 bool Syncer::GetSyncingStatus() const
 {
-    return this->isSyncing;
+    return isSyncing;
 }
 
 void Syncer::StopPeerMonitoring()
 {
-    this->run_peer_monitoring = false;
+    run_peer_monitoring = false;
 }
 
 void Syncer::StopSyncing()
 {
-    this->run_syncing = false;
+    run_syncing = false;
 }
 
 void Syncer::Stop()
 {
-    this->StopPeerMonitoring();
-    this->StopSyncing();
-    this->worker_pool.End();
+    StopPeerMonitoring();
+    StopSyncing();
+    worker_pool.End();
 }

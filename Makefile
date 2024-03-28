@@ -2,11 +2,9 @@ GCR_HOST = gcr.io
 PROJECT_ID = sigma-scheduler-405523
 REPO_NAME = be-sync
 IMAGE_TAG = latest
-
 IMAGE = $(GCR_HOST)/$(PROJECT_ID)/$(REPO_NAME):$(IMAGE_TAG)
 
 CXX = clang++
-
 CXXFLAGS = -std=c++17 -Wall -Wextra -Wno-defaulted-function-deleted -pedantic -g
 
 INCLUDES = -I/usr/local/include \
@@ -16,7 +14,8 @@ INCLUDES = -I/usr/local/include \
            -I/usr/local/include/boost
 
 LIBDIRS = -L/usr/local/lib \
-          -L/usr/local/opt/openssl/lib
+          -L/usr/local/opt/openssl/lib \
+          -L/usr/lib/x86_64-linux-gnu
 
 LIBS = -ljsonrpccpp-common \
        -ljsonrpccpp-client \
@@ -27,12 +26,15 @@ LIBS = -ljsonrpccpp-common \
        -lpqxx \
        -lcrypto \
        -lboost_filesystem \
-       -lboost_thread-mt \
+       -lyaml-cpp \
+       -lspdlog \
+       -lboost_thread \
        -lboost_system \
-       -lpthread -ldl -lm
+       -lpthread \
+       -ldl \
+       -lm 
 
-CXX_SRCS = src/syncer.cpp src/logger.cpp src/thread_pool.cpp src/controller.cpp src/database.cpp src/httpclient.cpp
-
+CXX_SRCS = src/init.cpp src/sync/syncer.cpp src/threading/thread_pool.cpp src/controllers/controller.cpp src/database/database.cpp src/http/httpclient.cpp
 CXX_OBJS = $(CXX_SRCS:.cpp=.o)
 
 TARGET = syncer
@@ -46,7 +48,7 @@ $(TARGET): $(CXX_OBJS)
 clean:
 	rm -f $(CXX_OBJS) $(TARGET)
 
-build: 
+build:
 	docker build -t $(IMAGE) .
 
 tag:
@@ -57,4 +59,3 @@ push:
 
 run:
 	docker run $(IMAGE)
-
