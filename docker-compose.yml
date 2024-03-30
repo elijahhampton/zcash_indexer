@@ -7,16 +7,7 @@ services:
       dockerfile: Dockerfile
     user: root
     environment:
-      DB_HOST: host.docker.internal
-      DB_PORT: "5432"
-      DB_NAME: postgres
-      DB_USER: postgres
-      DB_PASSWORD: ${DB_PASSWORD}
-      RPC_URL: host.docker.internal:8232
-      RPC_USERNAME: user
-      RPC_PASSWORD: password
-      BLOCK_CHUNK_PROCESSING_SIZE: 10000
-      ALLOW_MULTIPLE_THREADS: true
+      CONFIG_PATH: "./config.yaml"
 
   zcash_zcashd:
     image: electriccoinco/zcashd

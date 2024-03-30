@@ -5,11 +5,17 @@
  * attempt will not happen.
  */
 
+<<<<<<< HEAD:src/syncer.h
 #include "database.h"
 #include "httpclient.h"
 #include "logger.h"
 #include "chain_resource.h"
 #include "thread_pool.h"
+=======
+#include "../database/database.h"
+#include "../http/httpclient.h"
+#include "../threading/thread_pool.h"
+>>>>>>> 85187944eafd947ad6961ab28b1e856b5395f61c:src/sync/syncer.h
 #include <iostream>
 #include <string>
 #include <optional>
@@ -28,7 +34,7 @@
 
 #include <jsonrpccpp/common/jsonparser.h>
 
-#include "config.h"
+#include "spdlog/spdlog.h"
 
 #ifndef SYNCER_H
 #define SYNCER_H
@@ -39,24 +45,27 @@ class Syncer
     friend class Controller;
 
 private:
-    static constexpr uint8_t JOINABLE_THREAD_COOL_OFF_TIME_IN_SECONDS = 10;
+    std::atomic<bool> isSyncing{false};
+
     CustomClient &httpClient;
     Database &database;
 
     ThreadPool worker_pool;
 
+    std::mutex http_client_mutex;
     std::mutex db_mutex;
-    std::mutex httpClientMutex;
     std::mutex cs_sync;
 
-    uint64_t latestBlockSynced;
-    uint64_t latestBlockCount;
+    std::atomic<uint64_t> latestBlockSynced{0};
+    std::atomic<uint64_t> latestBlockCount{0};
 
     std::atomic<bool> run_syncing{true};
     std::atomic<bool> run_peer_monitoring{true};
     std::atomic<bool> run_chain_info_monitoring{true};
 
-    bool isSyncing;
+    uint64_t block_chunk_processing_size{0};
+
+
 
     /**
      * @brief Synchronizes a specified chunk range.
@@ -166,11 +175,6 @@ private:
 public:
     static constexpr uint8_t BLOCK_DOWNLOAD_VERBOSE_LEVEL = 2;
     static const uint8_t MAX_CONCURRENT_THREADS;
-    
-    /**
-     * @brief Static variable representing the size of each chunk of blocks to be synchronized.
-     */
-    static size_t CHUNK_SIZE;
 
     /**
      * @brief Checks if the Syncer is currently in the process of syncing.
@@ -212,7 +216,7 @@ public:
      * @param httpClientIn Reference to the CustomClient object for HTTP requests.
      * @param databaseIn Reference to the Database object for data storage and retrieval.
      */
-    Syncer(CustomClient &httpClientIn, Database &databaseIn);
+    Syncer(CustomClient &httpClientIn, Database &databaseIn, uint64_t chunk_size);
 
     Syncer(const Syncer& syncer) noexcept = delete;
     Syncer& operator=(const Syncer& syncer) noexcept = delete;

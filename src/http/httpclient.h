@@ -3,7 +3,7 @@
 
 #include "jsonrpccpp/client.h"
 #include "jsonrpccpp/client/connectors/httpclient.h"
-#include "logger.h"
+#include "spdlog/spdlog.h"
 
 class CustomClient
 {
@@ -31,7 +31,6 @@ public:
     Json::Value getblockcount();
     Json::Value getblockheader(const Json::Value &param01, const Json::Value &param02);
     Json::Value getblock(const Json::Value &param01, const Json::Value &param02);
-    std::string base64Encode(const std::string &input);
     Json::Value getpeerinfo();
 };
 

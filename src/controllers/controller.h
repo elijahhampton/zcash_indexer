@@ -1,15 +1,20 @@
 #ifndef CONTROLLER_H
 #define CONTROLLER_H
 
-#include "database.h"
-#include "syncer.h"
-#include "httpclient.h"
-
+#include "../database/database.h"
+#include "../sync/syncer.h"
+#include "../http/httpclient.h"
 
 #include <memory>
 #include <iostream>
 #include <string>
 #include <vector>
+
+#include <boost/log/core.hpp>
+#include <boost/log/trivial.hpp>
+#include <boost/log/expressions.hpp>
+
+#include "spdlog/spdlog.h"
 
 class Controller
 {
