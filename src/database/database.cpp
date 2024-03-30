@@ -230,8 +230,6 @@ void Database::ExecuteTableCreationQuery(const std::string& query, const std::st
         {
             spdlog::info("Error creating table. Aborting transaction.");
             tx.abort();
-            
-            throw std::runtime_error(e.what());
         }
     }
 }

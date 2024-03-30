@@ -44,7 +44,7 @@ private:
 
     ThreadPool worker_pool;
 
-    std::mutex httpClientMutex;
+    std::mutex http_client_mutex;
     std::mutex db_mutex;
     std::mutex cs_sync;
 

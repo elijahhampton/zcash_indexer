@@ -23,13 +23,12 @@ Syncer::Syncer(CustomClient &httpClientIn, Database &databaseIn, uint64_t chunk_
 
 Syncer::~Syncer() noexcept {}
 
-void Syncer::DoConcurrentSyncOnChunk(const std::vector<size_t> &chunkToProcess)
+void Syncer::DoConcurrentSyncOnChunk(const std::vector<size_t> &chunk_to_process)
 {
-    std::vector<Json::Value> downloadedBlocks;
-    downloadedBlocks.reserve(chunkToProcess.size());
-    this->DownloadBlocksFromHeights(downloadedBlocks, chunkToProcess);
+    std::vector<Json::Value> downloaded_blocks(chunk_to_process.size());
+    this->DownloadBlocksFromHeights(downloaded_blocks, chunk_to_process);
 
-    worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks)](uint64_t c, uint64_t d, uint64_t e)
+    worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloaded_blocks)](uint64_t c, uint64_t d, uint64_t e)
                            { 
                             this->database.StoreChunk(capturedDownloadedBlocks, c, d, e);
                             this->worker_pool.TaskCompleted(); },
@@ -121,13 +120,13 @@ void Syncer::InvokePeersListRefreshLoop() noexcept
     {
         try
         {
-            std::lock_guard<std::mutex> lock(httpClientMutex);
+            std::lock_guard<std::mutex> lock(http_client_mutex);
             Json::Value peer_info = this->httpClient.getpeerinfo();
             this->database.StorePeers(peer_info);
         }
         catch (const std::exception &e)
         {
-            std::cout << e.what() << std::endl;
+            spdlog::error(e.what());
         }
 
         std::this_thread::sleep_for(std::chrono::hours(24));
@@ -140,13 +139,13 @@ void Syncer::InvokeChainInfoRefreshLoop() noexcept
     {
         try
         {
-            std::lock_guard<std::mutex> lock(httpClientMutex);
+            std::lock_guard<std::mutex> lock(http_client_mutex);
             Json::Value chain_info = this->httpClient.getblockchaininfo();
             this->database.StoreChainInfo(chain_info);
         }
         catch (const std::exception &e)
         {
-            std::cout << e.what() << std::endl;
+            spdlog::error(e.what());
         }
 
         std::this_thread::sleep_for(std::chrono::hours(6));
@@ -247,28 +246,28 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
         throw std::runtime_error("Desired download size is greater than allowed per configuration");
     }
 
-    Json::Value getblockParams;
-    Json::Value blockResultSerialized;
+    Json::Value get_block_params;
+    Json::Value block_result_serialized;
 
-    std::lock_guard<std::mutex> lock(httpClientMutex);
+    std::lock_guard<std::mutex> lock(http_client_mutex);
     size_t i{0};
 
     while (i < numHeightsToDownload)
     {
-        getblockParams.append(Json::Value(std::to_string(heightsToDownload.at(i))));
-        getblockParams.append(Json::Value(2));
+        get_block_params.append(Json::Value(std::to_string(heightsToDownload.at(i))));
+        get_block_params.append(Json::Value(2));
 
         try
         {
-            blockResultSerialized = httpClient.CallMethod("getblock", getblockParams);
+            block_result_serialized = httpClient.CallMethod("getblock", get_block_params);
 
-            if (blockResultSerialized.isNull())
+            if (block_result_serialized.isNull())
             {
                 downloadedBlocks.push_back(Json::nullValue);
                 throw new std::exception();
             } 
 
-            downloadedBlocks.push_back(blockResultSerialized);
+            downloadedBlocks.push_back(block_result_serialized);
         }
         catch (jsonrpc::JsonRpcException &e)
         {
@@ -282,8 +281,8 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Json::Value> &downloadedBlock
         }
 
         ++i;
-        getblockParams.clear();
-        blockResultSerialized.clear();
+        get_block_params.clear();
+        block_result_serialized.clear();
     }
 }
 
@@ -291,26 +290,26 @@ void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t s
 {
     spdlog::debug("Downloading blocks: DownloadBlocks");
 
-    std::lock_guard<std::mutex> lock(this->httpClientMutex);
-    Json::Value getblockParams{Json::nullValue};
-    Json::Value blockResultSerialized{Json::nullValue};
+    std::lock_guard<std::mutex> lock(this->http_client_mutex);
+    Json::Value get_block_params{Json::nullValue};
+    Json::Value block_result_serialized{Json::nullValue};
 
     while (startRange <= endRange)
     {
-        getblockParams.append(Json::Value(std::to_string(startRange)));
-        getblockParams.append(Json::Value(Syncer::BLOCK_DOWNLOAD_VERBOSE_LEVEL));
+        get_block_params.append(Json::Value(std::to_string(startRange)));
+        get_block_params.append(Json::Value(Syncer::BLOCK_DOWNLOAD_VERBOSE_LEVEL));
 
         try
         {
-            blockResultSerialized = httpClient.CallMethod("getblock", getblockParams);
+            block_result_serialized = httpClient.CallMethod("getblock", get_block_params);
 
-            if (blockResultSerialized.isNull())
+            if (block_result_serialized.isNull())
             {
                 downloadBlocks.push_back(Json::nullValue);
                 throw new std::exception();
             }
 
-            downloadBlocks.push_back(blockResultSerialized);
+            downloadBlocks.push_back(block_result_serialized);
         }
         catch (jsonrpc::JsonRpcException &e)
         {
@@ -323,8 +322,8 @@ void Syncer::DownloadBlocks(std::vector<Json::Value> &downloadBlocks, uint64_t s
             this->database.AddMissedBlock(startRange);
         }
 
-        blockResultSerialized.clear();
-        getblockParams.clear();
+        block_result_serialized.clear();
+        get_block_params.clear();
         ++startRange;
     }
 }
@@ -346,7 +345,7 @@ void Syncer::LoadTotalBlockCountFromChain()
 {
     try
     {
-        std::lock_guard<std::mutex> lock(httpClientMutex);
+        std::lock_guard<std::mutex> lock(http_client_mutex);
         this->latestBlockCount.store(httpClient.getblockcount().asLargestUInt());
     }
     catch (jsonrpc::JsonRpcException &e)
