@@ -5,17 +5,9 @@
  * attempt will not happen.
  */
 
-<<<<<<< HEAD:src/syncer.h
-#include "database.h"
-#include "httpclient.h"
-#include "logger.h"
-#include "chain_resource.h"
-#include "thread_pool.h"
-=======
 #include "../database/database.h"
 #include "../http/httpclient.h"
 #include "../threading/thread_pool.h"
->>>>>>> 85187944eafd947ad6961ab28b1e856b5395f61c:src/sync/syncer.h
 #include <iostream>
 #include <string>
 #include <optional>
@@ -31,7 +23,7 @@
 #include <boost/process.hpp>
 #include <fstream>
 #include <queue>
-
+#include "../chain_resource.h"
 #include <jsonrpccpp/common/jsonparser.h>
 
 #include "spdlog/spdlog.h"
@@ -45,7 +37,9 @@ class Syncer
     friend class Controller;
 
 private:
-    std::atomic<bool> isSyncing{false};
+    std::atomic<uint64_t> latestBlockSynced{0};
+    std::atomic<uint64_t> latestBlockCount{0};
+    uint64_t block_chunk_processing_size{0};
 
     CustomClient &httpClient;
     Database &database;
@@ -56,15 +50,11 @@ private:
     std::mutex db_mutex;
     std::mutex cs_sync;
 
-    std::atomic<uint64_t> latestBlockSynced{0};
-    std::atomic<uint64_t> latestBlockCount{0};
-
     std::atomic<bool> run_syncing{true};
     std::atomic<bool> run_peer_monitoring{true};
     std::atomic<bool> run_chain_info_monitoring{true};
 
-    uint64_t block_chunk_processing_size{0};
-
+    std::atomic<bool> isSyncing{false};
 
 
     /**

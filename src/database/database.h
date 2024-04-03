@@ -18,18 +18,11 @@
 #include <variant>
 #include <limits>
 #include <jsonrpccpp/common/jsonparser.h>
-
-<<<<<<< HEAD:src/database.h
-#include "httpclient.h"
-#include "logger.h"
-#include "controller.h"
-#include "chain_resource.h"
-=======
+#include "../chain_resource.h"
 
 #include "../http/httpclient.h"
 #include "../controllers/controller.h"
 #include "spdlog/spdlog.h"
->>>>>>> 85187944eafd947ad6961ab28b1e856b5395f61c:src/database/database.h
 
 #ifndef DATABASE_H
 #define DATABASE_H
@@ -44,13 +37,8 @@ class Database
 
 private:
     static std::queue<std::unique_ptr<pqxx::connection>> connection_pool;
-<<<<<<< HEAD:src/database.h
-    static std::mutex cs_connection_pool;
-    static std::condition_variable cv_connection_pool;
-=======
     static std::mutex  cs_connection_pool;
     static std::condition_variable  cv_connection_pool;
->>>>>>> 85187944eafd947ad6961ab28b1e856b5395f61c:src/database/database.h
 
     static bool is_connected;
     static bool is_database_setup;
@@ -85,26 +73,17 @@ private:
      */
     void RemoveMissedBlock(size_t blockHeight);
 
-<<<<<<< HEAD:src/database.h
-    /**
-     * Establishes connections to the database.
-     *
-     * @param poolSize The number of connections to establish in the connection pool.
-     * @param connection_string The connection string used to connect to the database.
-     */
-    void Connect(size_t poolSize, const std::string &connection_string);
-=======
     const std::string CreateTransactionIdSqlRepresentation(const Json::Value& transactions, int start, int end) const;
     void ExecuteTableCreationQuery(const std::string& query, const std::string& tableName);
-    void createBlocksTable();
-    void createTransactionsTable();
-    void createCheckpointsTable();
-    void createTransparentInputsTable();
-    void createTransparentOutputsTable();
-    void createPeerInfoTable();
-    void createChainInfoTable();
+    
+    void CreateBlocksTable();
+    void CreateTransactionsTable();
+    void CreateCheckpointsTable();
+    void CreateTransparentInputsTable();
+    void CreateTransparentOutputsTable();
+    void CreatePeerInfoTable();
+    void CreateChainInfoTable();
 
->>>>>>> 85187944eafd947ad6961ab28b1e856b5395f61c:src/database/database.h
 
     /**
      * Creates necessary tables in the database.
@@ -156,25 +135,9 @@ public:
         size_t lastCheckpoint;
     };
 
-    /**
-<<<<<<< HEAD:src/database.h
-     * Constructs the Database object.
-     */
-    Database() = default;
-
-    /**
-     * Destructs the Database object and releases resources.
-     */
     ~Database();
 
-    Database(const Database &rhs) noexcept = delete;
-    Database &operator=(const Database &rhs) noexcept = delete;
-
-    Database(Database &&rhs) noexcept = default;
-    Database &operator=(Database &&rhs) noexcept = default;
-
-    /*
-=======
+    /**
      * Establishes connections to the database.
      *
      * @param poolSize The number of connections to establish in the connection pool.
@@ -184,7 +147,6 @@ public:
 
 
     /**
->>>>>>> 85187944eafd947ad6961ab28b1e856b5395f61c:src/database/database.h
      * Releases a database connection back to the connection pool.
      *
      * @param conn A unique pointer to the pqxx connection to be released.
@@ -210,7 +172,7 @@ static std::optional<const pqxx::result> ExecuteRead(std::string sql, Args... ar
 
         if (conn == nullptr || !conn->is_open())
         {
-            __ERROR__("------Invalid connection: connection is null or not open.--------");
+            spdlog::error("------Invalid connection: connection is null or not open.--------");
             throw std::runtime_error("------Invalid connection: connection is null or not open.--------");
         }
 
@@ -221,7 +183,7 @@ static std::optional<const pqxx::result> ExecuteRead(std::string sql, Args... ar
     }
     catch (const std::exception &e)
     {
-        __ERROR__(e.what());
+        spdlog::error(e.what());
         return std::nullopt;
     }
 }

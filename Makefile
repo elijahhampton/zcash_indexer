@@ -34,7 +34,7 @@ LIBS = -ljsonrpccpp-common \
        -ldl \
        -lm 
 
-CXX_SRCS = src/init.cpp src/sync/syncer.cpp src/threading/thread_pool.cpp src/controllers/controller.cpp src/database/database.cpp src/http/httpclient.cpp
+CXX_SRCS = src/init.cpp src/sync/syncer.cpp src/threading/thread_pool.cpp src/controllers/controller.cpp src/database/database.cpp src/http/httpclient.cpp src/chain_resource.cpp
 CXX_OBJS = $(CXX_SRCS:.cpp=.o)
 
 TARGET = syncer

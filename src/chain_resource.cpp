@@ -1,5 +1,5 @@
 #include "chain_resource.h"
-#include "database.h"
+#include "./database/database.h"
 
 // Block
 Block::Block() {}
@@ -25,22 +25,20 @@ Block::Block(const Json::Value &rawBlock) : nonce(rawBlock["nonce"].asCString())
     }
 }
 
-const Json::Value &Block::GetRawJson() const
+Json::Value &Block::GetRawJson()
 {
     return this->block;
 }
 
-const bool Block::isValid() const
+bool Block::isValid()
 {
     return !this->block.isNull();
 }
 
-
-std::map<std::string, std::vector<std::vector<BlockData>>> Block::DataToOrmStorageMap() 
+std::map<std::string, std::vector<std::vector<BlockData>>> Block::DataToOrmStorageMap()
 {
     std::map<std::string, std::vector<std::vector<BlockData>>> orm_storage_map = {
-        {"block", {}}, {"transaction", {}}, {"transparent_input", {}}, {"transparent_output", {}}
-        };
+        {"block", {}}, {"transaction", {}}, {"transparent_input", {}}, {"transparent_output", {}}};
 
     try
     {
@@ -99,16 +97,49 @@ std::map<std::string, std::vector<std::vector<BlockData>>> Block::DataToOrmStora
                 this->total_transparent_input += current_total_block_public_input;
                 this->total_transparent_output += current_total_block_public_output;
 
-                orm_storage_map["transaction"].push_back({tx_id, std::to_string(tx.size()), tx["overwintered"].asCString(), tx["version"].asCString(), std::to_string(current_total_block_public_input), std::to_string(current_total_block_public_output), tx["hex"].asCString(), this->hash, this->timestamp, this->height, tx["vin"].size(), static_cast<uint64_t>(tx["vout"].size())});
+                std::vector<BlockData> transaction_data = {
+                    tx_id,
+                    std::to_string(tx.size()),
+                    tx["overwintered"].asString(),
+                    tx["version"].asString(),
+                    std::to_string(current_total_block_public_input),
+                    std::to_string(current_total_block_public_output),
+                    tx["hex"].asString(),
+                    this->hash,
+                    this->timestamp,
+                    this->height,
+                    std::to_string(tx["vin"].size()),
+                    std::to_string(static_cast<uint64_t>(tx["vout"].size()))};
+
+                orm_storage_map["transaction"].emplace_back(transaction_data);
                 ++currentTransactionIndex;
             }
         }
 
-        orm_storage_map["block"].push_back({this->hash, this->height, this->timestamp, this->nonce, this->size, this->num_transactions, this->total_transparent_output, this->difficulty, this->chainwork, this->merkle_root, this->version, this->bits, this->transaction_ids_database_representation.c_str(), this->total_outputs, this->total_inputs, this->total_transparent_input, ""});
+        std::vector<BlockData> block_data = {
+            this->hash,
+            std::to_string(this->height),
+            this->timestamp,
+            this->nonce,
+            std::to_string(this->size),
+            std::to_string(this->num_transactions),
+            std::to_string(this->total_transparent_output),
+            std::to_string(this->difficulty),
+            this->chainwork,
+            this->merkle_root,
+            std::to_string(this->version),
+            this->bits,
+            this->transaction_ids_database_representation,
+            std::to_string(this->total_outputs),
+            std::to_string(this->total_inputs),
+            std::to_string(this->total_transparent_input),
+            ""};
+
+        orm_storage_map["block"].emplace_back(block_data);
     }
     catch (const std::exception &e)
     {
-        __ERROR__(e.what());
+        spdlog::error(e.what());
         throw;
     }
 
@@ -143,7 +174,7 @@ void Block::_storeTransparentInputs(const std::string &tx_id, const Json::Value 
                 {
                     coinbase = "";
                     vin_tx_id = input["txid"].asString();
-                    v_out_idx = input["vout"].asInt();
+                    v_out_idx = input["vout"].asUInt64();
 
                     // Find the vout referenced in this vin to get the value and add to the total public input
                     const std::optional<const pqxx::result> database_read_result = Database::ExecuteRead("SELECT * FROM transparent_outputs WHERE tx_id = $1 AND output_index = $2", input["txid"].asString(), static_cast<uint64_t>(input["vout"].asInt()));
@@ -169,17 +200,24 @@ void Block::_storeTransparentInputs(const std::string &tx_id, const Json::Value 
                 senders = "{}";
                 current_input_value = 0.0;
 
+                std::vector<BlockData> temp_vec;
+                temp_vec.push_back(tx_id);
+                temp_vec.push_back(vin_tx_id);
+                temp_vec.push_back(static_cast<uint64_t>(v_out_idx));
+                temp_vec.push_back(current_input_value);
+                temp_vec.push_back(senders);
+                temp_vec.push_back(coinbase);
 
-                transparent_transaction_inputs_values.push_back({tx_id, vin_tx_id, v_out_idx, current_input_value, senders, coinbase});
+                transparent_transaction_inputs_values.push_back(temp_vec);
             }
             catch (const pqxx::sql_error &e)
             {
-                __ERROR__(e.what());
+                spdlog::error(e.what());
                 throw;
             }
             catch (const std::exception &e)
             {
-                __ERROR__(e.what());
+                spdlog::error(e.what());
                 throw;
             }
         }
@@ -226,19 +264,23 @@ void Block::_storeTransparentOutputs(const std::string &tx_id, const Json::Value
                 }
                 recipientList += "}";
 
-                transparent_transaction_output_values.push_back({tx_id, outputIndex, recipientList, currentOutputValue});
+                transparent_transaction_output_values.emplace_back(std::vector<BlockData>{
+                    tx_id,
+                    std::to_string(outputIndex),
+                    recipientList,
+                    std::to_string(currentOutputValue)});
 
                 recipients.clear();
                 recipientList.clear();
             }
             catch (const pqxx::sql_error &e)
             {
-                __ERROR__(e.what());
+                spdlog::error(e.what());
                 throw;
             }
             catch (const std::exception &e)
             {
-                __ERROR__(e.what());
+                spdlog::error(e.what());
                 throw;
             }
         }

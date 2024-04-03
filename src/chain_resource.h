@@ -4,7 +4,7 @@
 #include <pqxx/pqxx>
 #include <variant>
 #include <memory>
-#include "logger.h"
+#include "spdlog/spdlog.h"
 
 #ifndef CHAIN_RESOURCE
 #define CHAIN_RESOURCE
@@ -56,8 +56,8 @@ public:
 
     virtual ~Block() = default;
 
-    const bool isValid() const;
-    const Json::Value &GetRawJson() const;
+    bool isValid();
+    Json::Value &GetRawJson();
 
     std::map<std::string, std::vector<std::vector<BlockData>>> DataToOrmStorageMap() override;
 
