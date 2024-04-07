@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <thread>
 #include <memory>
+#include <utility>
 #include <chrono>
 #include <atomic>
 #include <vector>
@@ -39,7 +40,7 @@ class Syncer
 private:
     std::atomic<uint64_t> latestBlockSynced{0};
     std::atomic<uint64_t> latestBlockCount{0};
-    uint64_t block_chunk_processing_size{0};
+    uint64_t maxBlocksToIndexSize{0};
 
     CustomClient &httpClient;
     Database &database;
@@ -74,7 +75,7 @@ private:
      *
      * @note The synchronization only operates in fixed ranges as defined by CHUNK_SIZE(s).
      */
-    void DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, bool isPreExistingCheckpoint);
+    void SyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, bool isPreExistingCheckpoint);
     void StartSyncLoop();
 
     /**
@@ -87,7 +88,7 @@ private:
      *
      * @param chunkToProcess A list of block heights to process.
      */
-    void DoConcurrentSyncOnChunk(const std::vector<size_t> &chunkToProcess);
+    void SyncOnChunk(const std::vector<size_t> &chunkToProcess);
 
     /**
      * @brief Downloads blockchain blocks based on a list of block heights.
@@ -107,11 +108,11 @@ private:
      * Attempts to download blocks within the specified start and end range. The downloaded blocks are added to the downloadBlocks vector.
      * TODO: Implement network robustness features such as retries and backoff strategies for handling network-related issues.
      *
-     * @param downloadBlocks A reference to a vector where the downloaded blocks will be stored.
+     * @param downloadedBlocks A reference to a vector where the downloaded blocks will be stored.
      * @param startRange The starting block height for the download.
      * @param endRange The ending block height for the download.
      */
-    void DownloadBlocks(std::vector<Block> &downloadBlocks, uint64_t startRange, uint64_t endRange);
+    void DownloadBlocks(std::vector<Block> &downloadedBlocks, uint64_t startRange, uint64_t endRange);
 
     /**
      * @brief Loads the count of blocks that have been synced from the database.

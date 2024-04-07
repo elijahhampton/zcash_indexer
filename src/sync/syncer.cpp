@@ -17,35 +17,35 @@
 
 const uint8_t Syncer::MAX_CONCURRENT_THREADS = std::thread::hardware_concurrency();
 
-Syncer::Syncer(CustomClient &httpClientIn, Database &databaseIn, uint64_t chunk_size) : httpClient(httpClientIn), database(databaseIn), latestBlockSynced{0}, latestBlockCount{0}, isSyncing{false}, worker_pool{ThreadPool()}, block_chunk_processing_size{chunk_size}
+Syncer::Syncer(CustomClient &httpClientIn, Database &databaseIn, uint64_t chunk_size) : httpClient(httpClientIn), database(databaseIn), latestBlockSynced{0}, latestBlockCount{0}, isSyncing{false}, worker_pool{ThreadPool()}, maxBlocksToIndexSize{chunk_size}
 {
 }
 
 Syncer::~Syncer() noexcept {}
 
-void Syncer::DoConcurrentSyncOnChunk(const std::vector<size_t> &chunk_to_process)
+void Syncer::SyncOnChunk(const std::vector<size_t> &chunk_to_process)
 {
-    std::vector<Block> downloaded_blocks(chunk_to_process.size());
-    this->DownloadBlocksFromHeights(downloaded_blocks, chunk_to_process);
+    std::vector<Block> downloadedBlocks(chunk_to_process.size());
+    this->DownloadBlocksFromHeights(downloadedBlocks, chunk_to_process);
 
-    worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloaded_blocks)](uint64_t c, uint64_t d, uint64_t e) mutable
+    worker_pool.SubmitTask([this, downloadedBlocks = std::move(downloadedBlocks)](uint64_t c, uint64_t d, uint64_t e) mutable
                            { 
-                            this->database.BatchStoreBlocks(capturedDownloadedBlocks, c, d, e);
+                            this->database.BatchStoreBlocks(std::move(downloadedBlocks), c, d, e);
                             this->worker_pool.TaskCompleted(); },
                            Database::InvalidHeight, Database::InvalidHeight, Database::InvalidHeight);
 }
 
 size_t Syncer::GetNextSegmentIndex(size_t chunkEndpoint, size_t segmentStart)
 {
-    if (chunkEndpoint - segmentStart + 1 >= Syncer::block_chunk_processing_size)
+    if (chunkEndpoint - segmentStart + 1 >= Syncer::maxBlocksToIndexSize)
     {
-        return segmentStart + Syncer::block_chunk_processing_size - 1;
+        return segmentStart + Syncer::maxBlocksToIndexSize - 1;
     }
 
     return chunkEndpoint;
 }
 
-void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, bool isPreExistingCheckpoint)
+void Syncer::SyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, bool isPreExistingCheckpoint)
 {
     std::vector<Block> downloadedBlocks;
     size_t segmentStartIndex{rangeStart};
@@ -69,10 +69,10 @@ void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, boo
         this->DownloadBlocks(downloadedBlocks, segmentStartIndex, segmentEndIndex);
 
         spdlog::info("Starting new thread to sync chunk for checkpoint.");
-        this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex, rangeStart] () mutable
-                                     { 
-                                        this->database.BatchStoreBlocks(capturedDownloadedBlocks, segmentStartIndex, segmentEndIndex, rangeStart); 
-                                        this->worker_pool.TaskCompleted(); });
+        this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex, rangeStart] () mutable { 
+                this->database.BatchStoreBlocks(std::move(capturedDownloadedBlocks), segmentStartIndex, segmentEndIndex, rangeStart); 
+                this->worker_pool.TaskCompleted(); 
+        });
     }
     else
     {
@@ -81,14 +81,15 @@ void Syncer::DoConcurrentSyncOnRange(uint64_t rangeStart, uint64_t rangeEnd, boo
         while (segmentStartIndex <= rangeEnd)
         {
             this->database.CreateCheckpointIfNonExistent(segmentStartIndex, segmentEndIndex);
-
+        
+            downloadedBlocks.clear();
             downloadedBlocks.reserve(segmentEndIndex - segmentStartIndex);
             this->DownloadBlocks(downloadedBlocks, segmentStartIndex, segmentEndIndex);
 
             spdlog::info("Starting new thread to sync chunk.");
             this->worker_pool.SubmitTask([this, capturedDownloadedBlocks = std::move(downloadedBlocks), segmentStartIndex, segmentEndIndex] () mutable
                                          { 
-                                        this->database.BatchStoreBlocks(capturedDownloadedBlocks, segmentStartIndex, segmentEndIndex, segmentStartIndex); 
+                                        this->database.BatchStoreBlocks(std::move(capturedDownloadedBlocks), segmentStartIndex, segmentEndIndex, segmentStartIndex); 
                                         this->worker_pool.TaskCompleted(); });
 
             segmentStartIndex = segmentEndIndex + 1;
@@ -167,7 +168,7 @@ void Syncer::SyncUnfinishedCheckpoints(std::stack<Database::Checkpoint> &checkpo
         uint64_t endHeight = currentCheckpoint.chunkEndHeight;
 
         spdlog::debug(("Starting sync on checkpoint with start block height: " + std::to_string(startHeight)).c_str());
-        this->DoConcurrentSyncOnRange(startHeight, endHeight, true);
+        this->SyncOnRange(startHeight, endHeight, true);
 
         checkpoints.pop();
     }
@@ -179,12 +180,12 @@ void Syncer::Sync()
     {
         this->isSyncing = true;
 
-        // Allow any threads in the thread pool to complete before starting a new syncing session.
+        Allow any threads in the thread pool to complete before starting a new syncing session.
         if (!this->worker_pool.isEmpty()) {
             this->worker_pool.RefreshThreadPool();
         }
 
-        // Complete any previous attempts to sync chunks of blocks before starting the new session
+        Complete any previous attempts to sync chunks of blocks before starting the new session
         std::stack<Database::Checkpoint> checkpoints = this->database.GetUnfinishedCheckpoints();
         if (!checkpoints.empty())
         {
@@ -207,12 +208,12 @@ void Syncer::Sync()
             isSyncing = false;
             return;
         }
-        else if (numNewBlocks >= block_chunk_processing_size)
+        else if (numNewBlocks >= maxBlocksToIndexSize)
         {
             spdlog::debug("Syncing path: By range");
 
             uint64_t startRangeChunk = latestSyncedBlockHeightVal == 0 ? latestSyncedBlockHeightVal : latestSyncedBlockHeightVal + 1;
-            this->DoConcurrentSyncOnRange(startRangeChunk, latestBlockCountVal, false);
+            this->SyncOnRange(startRangeChunk, latestBlockCountVal, false);
         }
         else
         {
@@ -221,9 +222,9 @@ void Syncer::Sync()
             size_t block_chunk = latestBlockCountVal - latestSyncedBlockHeightVal;
             std::vector<size_t> heights(block_chunk);
             
-            // Populate the vector with the appropriate heihgts starting at the latest block synced
+            // Populate the vector with the appropriate heights starting at the latest block synced
             std::iota(heights.begin(), heights.end(), latestSyncedBlockHeightVal + 1);
-            this->DoConcurrentSyncOnChunk(heights);
+            this->SyncOnChunk(std::move(heights));
         }
 
         // Refresh the worker thread pool and allow all work to complete before ending the sync
@@ -239,9 +240,8 @@ void Syncer::Sync()
 
 void Syncer::DownloadBlocksFromHeights(std::vector<Block> &downloadedBlocks, std::vector<size_t> heightsToDownload)
 {
-    spdlog::debug("Downloading blocks: DownloadBlocksFromHeights");
-    auto numHeightsToDownload{heightsToDownload.size()};
-    if (numHeightsToDownload > Syncer::block_chunk_processing_size)
+    size_t numHeightsToDownload(heightsToDownload.size());
+    if (numHeightsToDownload > Syncer::maxBlocksToIndexSize)
     {
         throw std::runtime_error("Desired download size is greater than allowed per configuration");
     }
@@ -250,11 +250,10 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Block> &downloadedBlocks, std
     Json::Value block_result_serialized;
 
     std::lock_guard<std::mutex> lock(http_client_mutex);
-    size_t i{0};
-
-    while (i < numHeightsToDownload)
+    size_t currentHeightToDownload{0};
+    while (currentHeightToDownload < numHeightsToDownload)
     {
-        get_block_params.append(Json::Value(std::to_string(heightsToDownload.at(i))));
+        get_block_params.append(Json::Value(std::to_string(heightsToDownload.at(currentHeightToDownload))));
         get_block_params.append(Json::Value(2));
 
         try
@@ -266,21 +265,16 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Block> &downloadedBlocks, std
                 downloadedBlocks.push_back(Block());
                 throw new std::exception();
             } 
-
-            downloadedBlocks.push_back(block_result_serialized);
-        }
-        catch (jsonrpc::JsonRpcException &e)
-        {
-            spdlog::error(e.what());
-            this->database.AddMissedBlock(i);
+    
+            downloadedBlocks.push_back(Block{block_result_serialized});
         }
         catch (std::exception &e)
         {
             spdlog::error(e.what());
-            this->database.AddMissedBlock(i);
+            this->database.AddMissedBlock(currentHeightToDownload);
         }
         
-        ++i;
+        ++currentHeightToDownload;
         get_block_params.clear();
         block_result_serialized.clear();
     }
@@ -288,8 +282,6 @@ void Syncer::DownloadBlocksFromHeights(std::vector<Block> &downloadedBlocks, std
 
 void Syncer::DownloadBlocks(std::vector<Block> &downloadedBlocks, uint64_t startRange, uint64_t endRange)
 {
-    spdlog::debug("Downloading blocks: DownloadBlocks");
-
     std::lock_guard<std::mutex> lock(http_client_mutex);
     Json::Value get_block_params{Json::nullValue};
     Json::Value block_result_serialized{Json::nullValue};
@@ -309,12 +301,7 @@ void Syncer::DownloadBlocks(std::vector<Block> &downloadedBlocks, uint64_t start
                 throw new std::exception();
             }
 
-            downloadedBlocks.push_back(block_result_serialized);
-        }
-        catch (jsonrpc::JsonRpcException &e)
-        {
-            spdlog::error(e.what());
-            this->database.AddMissedBlock(startRange);
+            downloadedBlocks.push_back(Block{block_result_serialized});
         }
         catch (std::exception &e)
         {
@@ -333,6 +320,7 @@ void Syncer::LoadSyncedBlockCountFromDB()
     try 
     {
         this->latestBlockSynced.store(this->database.GetSyncedBlockCountFromDB());
+        spdlog::debug(("New synced block count " + std::to_string(this->latestBlockSynced)).c_str());
     }
     catch (std::exception &e)
     {
@@ -364,11 +352,8 @@ void Syncer::LoadTotalBlockCountFromChain()
 
             // Retry
             this->LoadTotalBlockCountFromChain(); 
-        }
-        else
-        {
-            spdlog::error(errorMessage);
-            throw; // Rethrow the exception if it's not a known error message
+        } else {
+            throw e;
         }
     }
     catch (std::exception &e)

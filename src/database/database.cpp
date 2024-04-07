@@ -1,6 +1,5 @@
 #include "database.h"
-#include <boost/archive/text_oarchive.hpp>
-#include <boost/archive/text_iarchive.hpp>
+#include "../chain_resource.h"
 
 template std::optional<const pqxx::result> Database::ExecuteRead<std::string, uint64_t>(std::string sql, std::string, uint64_t);
 
@@ -14,7 +13,7 @@ std::condition_variable Database::cv_connection_pool;
 
 Database::~Database()
 {
-    ShutdownConnections();
+    EmptyConnectionPool();
 }
 
 void Database::Connect(size_t poolSize, const std::string &conn_str)
@@ -27,8 +26,6 @@ void Database::Connect(size_t poolSize, const std::string &conn_str)
         spdlog::info("Database is already connected.");
         return;
     }
-
-    spdlog::debug(("Initializing database pool with " + std::to_string(poolSize) + " connections").c_str());
 
     try
     {
@@ -45,7 +42,7 @@ void Database::Connect(size_t poolSize, const std::string &conn_str)
     catch (std::exception &e)
     {
         is_connected = false;
-        ShutdownConnections();
+        EmptyConnectionPool();
 
         spdlog::error(e.what());
     }
@@ -100,7 +97,7 @@ void Database::ReleaseConnection(std::unique_ptr<pqxx::connection> conn)
     }
 }
 
-void Database::ShutdownConnections()
+void Database::EmptyConnectionPool()
 {
     std::lock_guard<std::mutex> lock(cs_connection_pool);
     if (!connection_pool.empty())
@@ -134,7 +131,8 @@ void Database::CreateBlocksTable()
         )
     )";
 
-    ExecuteTableCreationQuery(query, "blocks");
+    ExecuteTableCreationQuery(query, tableColumnsToString[TableColumn::Blocks]);
+    spdlog::debug("Blocks table created");
 }
 void Database::CreateTransactionsTable()
 {
@@ -152,9 +150,11 @@ void Database::CreateTransactionsTable()
         height INTEGER,
         num_inputs INTEGER,
         num_outputs INTEGER
+            )
         )";
 
-    ExecuteTableCreationQuery(query, "transactions");
+    ExecuteTableCreationQuery(query, tableColumnsToString[TableColumn::Transactions]);
+    spdlog::debug("Transactions table created");
 }
 void Database::CreateCheckpointsTable()
 {
@@ -166,7 +166,8 @@ void Database::CreateCheckpointsTable()
         )
     )";
 
-    ExecuteTableCreationQuery(query, "checkpoints");
+    ExecuteTableCreationQuery(query, tableColumnsToString[TableColumn::Checkpoints]);
+    spdlog::debug("Checkpoints table created");
 }
 void Database::CreateTransparentInputsTable()
 {
@@ -181,7 +182,8 @@ void Database::CreateTransparentInputsTable()
         )
     )";
 
-    ExecuteTableCreationQuery(query, "transparent_inputs");
+    ExecuteTableCreationQuery(query, tableColumnsToString[TableColumn::TransparentInputs]);
+    spdlog::debug("Transparent_Inputs table created");
 }
 void Database::CreateTransparentOutputsTable()
 {
@@ -194,7 +196,8 @@ void Database::CreateTransparentOutputsTable()
         )
     )";
 
-    ExecuteTableCreationQuery(query, "transparent_outputs");
+    ExecuteTableCreationQuery(query, tableColumnsToString[TableColumn::TransparentOutputs]);
+    spdlog::debug("Transparent_Outputs table created");
 }
 
 void Database::CreatePeerInfoTable()
@@ -203,7 +206,8 @@ void Database::CreatePeerInfoTable()
         CREATE TABLE peerinfo (addr TEXT, lastsend TEXT, lastrecv TEXT, conntime TEXT, subver TEXT, synced_blocks TEXT)
         )";
 
-    ExecuteTableCreationQuery(query, "peerinfo");
+    ExecuteTableCreationQuery(query, tableColumnsToString[TableColumn::PeerInfo]);
+    spdlog::debug("Peer_Info table created");
 }
 
 void Database::CreateChainInfoTable()
@@ -212,7 +216,8 @@ void Database::CreateChainInfoTable()
              CREATE TABLE chain_info (orchard_pool_value DOUBLE PRECISION, best_block_hash TEXT, size_on_disk DOUBLE PRECISION, best_height INT, total_chain_value DOUBLE PRECISION)
     )";
 
-    ExecuteTableCreationQuery(query, "chain_info");
+    ExecuteTableCreationQuery(query, tableColumnsToString[TableColumn::ChainInfo]);
+    spdlog::debug("Chain_Info table created");
 }
 
 void Database::ExecuteTableCreationQuery(const std::string &query, const std::string &tableName)
@@ -234,8 +239,9 @@ void Database::ExecuteTableCreationQuery(const std::string &query, const std::st
         }
         else
         {
-            spdlog::info("Error creating table. Aborting transaction.");
             tx.abort();
+            spdlog::debug(e.what());
+            throw std::runtime_error(e.what());
         }
     }
 }
@@ -319,6 +325,7 @@ void Database::BatchInsertStatements(pqxx::work &batch_insert_txn, const std::st
     }
     catch (const std::exception &e)
     {
+        spdlog::error(e.what());
         throw;
     }
 }
@@ -468,10 +475,44 @@ void Database::AddMissedBlock(size_t blockHeight)
     spdlog::debug(("Missed block at height " + std::to_string(blockHeight)).c_str());
 }
 
-void Database::BatchStoreBlocks(std::vector<Block> &chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight)
-{
-    spdlog::info("Syncing path: BatchStoreBlocks()");
+void Database::StoreOrmStorageMap(std::map<std::string, std::vector<std::vector<BlockData>>> orm_storage_map) {
+    ManagedConnection conn(*this);
+    pqxx::work batch_insert_txn(*conn);
 
+    for (auto iter = orm_storage_map.cbegin(); iter != orm_storage_map.cend(); ++iter) {
+                for (auto stmt_iter = orm_storage_map[iter->first].cbegin(); stmt_iter != orm_storage_map[iter->first].cend(); ++stmt_iter)
+                {
+                    const auto &tableName = iter->first;
+                    const auto &tableData = iter->second;
+                   
+                    if (tableName == tableColumnsToString[TableColumn::Blocks])
+                    {
+                        BatchInsertStatements(batch_insert_txn, tableName,
+                                                    {"hash", "height", "timestamp", "nonce", "size", "num_transactions", "total_block_output",
+                                                     "difficulty", "chainwork", "merkle_root", "version", "bits", "transaction_ids", "num_outputs",
+                                                     "num_inputs", "total_block_input", "miner"},
+                                                    tableData);
+                    }
+                    else if (tableName == tableColumnsToString[TableColumn::Transactions])
+                    {
+                        BatchInsertStatements(batch_insert_txn, tableName, {"tx_id", "size", "is_overwintered", "version", "total_public_input", "total_public_output", "hex", "hash", "timestamp", "height", "num_inputs", "num_outputs"}, tableData);
+                    }
+                    else if (tableName == tableColumnsToString[TableColumn::TransparentInputs])
+                    {
+                        BatchInsertStatements(batch_insert_txn, tableName, {"tx_id", "vin_tx_id", "v_out_idx", "value", "senders", "coinbase"}, tableData);
+                    }
+                    else if (tableName == tableColumnsToString[TableColumn::TransparentOutputs])
+                    {
+                        BatchInsertStatements(batch_insert_txn, tableName, {"tx_id", "output_index", "recipients", "value"}, tableData);
+                    }
+                }
+            }
+
+            batch_insert_txn.commit();
+}
+
+void Database::BatchStoreBlocks(std::vector<Block> &&chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight)
+{
     std::optional<Database::Checkpoint> checkpointOpt = this->GetCheckpoint(trueRangeStartHeight);
     bool checkpointExist = checkpointOpt.has_value();
 
@@ -480,59 +521,24 @@ void Database::BatchStoreBlocks(std::vector<Block> &chunk, uint64_t chunkStartHe
     auto elapsedTimeSinceLastCheckpoint{now - timeSinceLastCheckpoint};
     size_t chunkCurrentProcessingIndex{static_cast<size_t>(chunkStartHeight)};
 
-    ManagedConnection conn(*this);
-    pqxx::work batch_insert_txn(*conn);
-
     // Process the chunk. Commit all transactions by the block (i.e. batch insert transaction is atomic)
     for (auto &item : chunk)
     {
         if (!item.isValid())
         {
-            throw std::invalid_argument("Expected Json::Value for block, but found Json::nullValue");
+            spdlog::info("Invalid raw json for block. Continuing to process batch.");
+            continue;
         }
 
         // Obtain orm storage map and batch inserts for the entire block
         try
         {
-            std::map<std::string, std::vector<std::vector<BlockData>>> orm_storage_map = item.DataToOrmStorageMap();
-
-            for (auto iter = orm_storage_map.cbegin(); iter != orm_storage_map.cend(); ++iter)
-            {
-                for (auto stmt_iter = orm_storage_map[iter->first].cbegin(); stmt_iter != orm_storage_map[iter->first].cend(); ++stmt_iter)
-                {
-                    const auto &tableName = iter->first;
-                    const auto &tableData = iter->second;
-
-                    if (tableName == "blocks")
-                    {
-                        this->BatchInsertStatements(batch_insert_txn, tableName,
-                                                    {"hash", "height", "timestamp", "nonce", "size", "num_transactions", "total_block_output",
-                                                     "difficulty", "chainwork", "merkle_root", "version", "bits", "transaction_ids", "num_outputs",
-                                                     "num_inputs", "total_block_input", "miner"},
-                                                    tableData);
-                    }
-                    else if (tableName == "transactions")
-                    {
-                        this->BatchInsertStatements(batch_insert_txn, tableName, {"tx_id", "size", "is_overwintered", "version", "total_public_input", "total_public_output", "hex", "hash", "timestamp", "height", "num_inputs", "num_outputs"}, tableData);
-                    }
-                    else if (tableName == "transparent_inputs")
-                    {
-                        this->BatchInsertStatements(batch_insert_txn, tableName, {"tx_id", "vin_tx_id", "v_out_idx", "value", "senders", "coinbase"}, tableData);
-                    }
-                    else if (tableName == "transparent_outputs")
-                    {
-                        this->BatchInsertStatements(batch_insert_txn, tableName, {"tx_id", "output_index", "recipients", "value"}, tableData);
-                    }
-                }
-            }
-
-            batch_insert_txn.commit();
+            StoreOrmStorageMap(item.DataToOrmStorageMap()); 
         }
         catch (const std::exception &e)
         {
             // Missed block
             spdlog::error(e.what());
-
             ++chunkCurrentProcessingIndex;
             continue;
         }
@@ -553,6 +559,7 @@ void Database::BatchStoreBlocks(std::vector<Block> &chunk, uint64_t chunkStartHe
                 this->UpdateChunkCheckpoint(checkpointExist ? checkpoint.chunkStartHeight : chunkStartHeight, chunkCurrentProcessingIndex);
                 timeSinceLastCheckpoint = std::chrono::steady_clock::now();
             }
+            
         }
 
         ++chunkCurrentProcessingIndex;
@@ -583,19 +590,8 @@ uint64_t Database::GetSyncedBlockCountFromDB()
         ManagedConnection conn(*this);
         pqxx::work tx(*conn);
         std::optional<pqxx::row> row = tx.exec1("SELECT height FROM blocks ORDER BY height DESC LIMIT 1;");
-        size_t syncedBlockCount{0};
-        if (row.has_value())
-        {
-            syncedBlockCount = row.value()[0].as<int>();
-        }
-        else
-        {
-            syncedBlockCount = 0;
-        }
-
-        spdlog::debug(("New synced block count " + std::to_string(syncedBlockCount)).c_str());
-
-        return syncedBlockCount;
+        return 0;
+        //return row.has_value() ? row.value()[0].as<int>() : 0;
     }
     catch (std::exception &e)
     {

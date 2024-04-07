@@ -8,6 +8,7 @@ WORKDIR /usr/src/app
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
+    gdb \
     postgresql-client \
     clang \
     libpqxx-dev \

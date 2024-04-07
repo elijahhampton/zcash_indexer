@@ -9,7 +9,7 @@ services:
     environment:
       CONFIG_PATH: "./config.yaml"
 
-  zcash_zcashd:
+  zcashd:
     image: electriccoinco/zcashd
     user: "2001:2001" 
     volumes:

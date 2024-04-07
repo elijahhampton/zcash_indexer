@@ -22,7 +22,7 @@ int InitApp() {
         " host=" + config["database"]["host"].as<std::string>() +
         " port=" + config["database"]["port"].as<std::string>();
 
-    spdlog::debug(connection_string.c_str());
+    spdlog::info(connection_string.c_str());
 
     size_t poolSize = std::thread::hardware_concurrency() * 5;
     spdlog::debug(("Initializing database with pool size: " + std::to_string(poolSize)).c_str());

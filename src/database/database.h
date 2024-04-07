@@ -12,22 +12,24 @@
 #include <chrono>
 #include <fstream>
 #include <numeric>
+#include <utility>
 #include <queue>
 #include <string>
 #include <iostream>
 #include <variant>
 #include <limits>
 #include <jsonrpccpp/common/jsonparser.h>
-#include "../chain_resource.h"
-
 #include "../http/httpclient.h"
 #include "../controllers/controller.h"
 #include "spdlog/spdlog.h"
+#include "../identifier.h"
 
 #ifndef DATABASE_H
 #define DATABASE_H
 
 class ManagedConnection;
+class Block;
+using BlockData = std::variant<std::string, uint16_t, uint64_t, double>;
 
 class Database
 {
@@ -49,7 +51,7 @@ private:
      * Shuts down all connections in the connection pool.
      * Closes each connection and clears the pool.
      */
-    static void ShutdownConnections();
+    static void EmptyConnectionPool();
 
     /**
      * Updates the checkpoint for a specific chunk.
@@ -114,8 +116,10 @@ private:
      * @param chunkEndHeight The ending height of the chunk.
      * @param trueRangeStartHeight The true starting height of the range. Defaults to 0 if not provided.
      */
-    void BatchStoreBlocks(std::vector<Block> &chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight = Database::InvalidHeight);
+    void BatchStoreBlocks(std::vector<Block> &&chunk, uint64_t chunkStartHeight, uint64_t chunkEndHeight, uint64_t trueRangeStartHeight = Database::InvalidHeight);
     
+    void StoreOrmStorageMap(std::map<std::string, std::vector<std::vector<BlockData>>> storageMap);
+
     /**
      * Stores connected peers to the peersinfo table.
      *
@@ -161,7 +165,7 @@ public:
      */
     std::unique_ptr<pqxx::connection> GetConnection();
 
-  template <typename... Args>
+template <typename... Args>
 static std::optional<const pqxx::result> ExecuteRead(std::string sql, Args... args)
 {
     try

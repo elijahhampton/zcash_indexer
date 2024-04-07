@@ -1,5 +1,5 @@
 #include "chain_resource.h"
-#include "./database/database.h"
+#include "database/database.h"
 
 // Block
 Block::Block() {}
@@ -12,14 +12,14 @@ Block::Block(const Json::Value &rawBlock) : nonce(rawBlock["nonce"].asCString())
                                             timestamp(rawBlock["time"].asUInt64()),
                                             difficulty(rawBlock["difficulty"].asUInt64()),
                                             transactions(rawBlock["tx"]),
-                                            num_transactions(this->transactions.size()),
+                                            num_transactions(rawBlock["tx"].size()),
                                             hash(rawBlock["hash"].asCString()),
                                             height(rawBlock["height"].asUInt64()),
                                             size(rawBlock["size"].asUInt64()),
                                             chainwork(rawBlock["chainwork"].asCString()),
                                             bits(rawBlock["bits"].asCString())
 {
-    if (rawBlock.isNull() || !this->block["tx"].isArray())
+    if (rawBlock.isNull())
     {
         throw std::invalid_argument("Invalid JSON value for Block(rawBlock)");
     }
@@ -27,56 +27,45 @@ Block::Block(const Json::Value &rawBlock) : nonce(rawBlock["nonce"].asCString())
 
 Json::Value &Block::GetRawJson()
 {
-    return this->block;
+    return block;
 }
 
 bool Block::isValid()
 {
-    return !this->block.isNull();
+    return block.isNull();
 }
 
 std::map<std::string, std::vector<std::vector<BlockData>>> Block::DataToOrmStorageMap()
 {
     std::map<std::string, std::vector<std::vector<BlockData>>> orm_storage_map = {
-        {"block", {}}, {"transaction", {}}, {"transparent_input", {}}, {"transparent_output", {}}};
+        {tableColumnsToString[TableColumn::Blocks], {}}, {tableColumnsToString[TableColumn::Transactions], {}}, {tableColumnsToString[TableColumn::TransparentInputs], {}}, {tableColumnsToString[TableColumn::TransparentOutputs], {}}};
 
     try
     {
-        const uint64_t transactions_size = this->transactions.size();
-
-        if (this->transactions.isArray() && transactions_size > 0)
+        transaction_ids_database_representation ="{}";
+        if (!this->transactions.isNull() && this->transactions.isArray() && num_transactions > 0)
         {
-            uint64_t currentTransactionIndex{0};
+            size_t currentTransactionIndex{0};
             bool isCoinbase{false};
 
+            // Transactions array -> Database list representation
+            transaction_ids_database_representation = "{";
             for (const Json::Value &tx : this->transactions)
             {
-                if (tx.isNull())
-                {
-                    throw std::runtime_error("Invalid transaction at block height " + std::to_string(this->height) + ".");
-                }
-
-                std::string tx_id = tx["txid"].asString();
-
-                // Transactions array -> Database list representation
-                std::string transaction_ids_database_representation = "{";
+                const std::string tx_id = tx["txid"].asString();
                 transaction_ids_database_representation += "\"" + tx_id + "\"";
-
-                if (currentTransactionIndex < transactions_size - 1)
+                if (currentTransactionIndex < num_transactions - 1)
                 {
                     transaction_ids_database_representation += ",";
                 }
 
-                transaction_ids_database_representation += "}";
-
                 // Transaction inputs / outputs
-                this->total_outputs += static_cast<uint64_t>(tx["vout"].size());
-                this->total_inputs += static_cast<uint64_t>(tx["vin"].size());
-                this->total_transparent_output += tx["vout"].asDouble();
-
+                total_outputs += static_cast<size_t>(tx["vout"].size());
+                total_inputs += static_cast<size_t>(tx["vin"].size());
+                
                 if (tx["vin"].isArray() && tx["vin"].size() == 1 && tx["vin"][0].isMember("coinbase"))
                 {
-                    this->total_transparent_input = 0.0;
+                    total_transparent_input = 0.0;
                     isCoinbase = true;
                 }
                 else
@@ -84,18 +73,18 @@ std::map<std::string, std::vector<std::vector<BlockData>>> Block::DataToOrmStora
                     const std::optional<const pqxx::result> database_read_result = Database::ExecuteRead("SELECT * FROM transparent_outputs WHERE tx_id = $1 AND output_index = $2", tx["vin"]["txid"].asString(), static_cast<uint64_t>(tx["vin"]["vout"].asInt()));
                     if (database_read_result.has_value() && !database_read_result.value().empty())
                     {
-                        this->total_transparent_input += database_read_result.value()[0]["value"].as<double>();
+                        total_transparent_input += database_read_result.value()[0]["value"].as<double>();
                     }
                 }
 
                 double current_total_block_public_input{0.0};
                 double current_total_block_public_output{0.0};
 
-                this->_storeTransparentInputs(tx_id, tx["vin"], current_total_block_public_input, orm_storage_map["transparent_input"]);
-                this->_storeTransparentOutputs(tx_id, tx["vout"], current_total_block_public_output, orm_storage_map["transparent_output"]);
+                TransparentInputs(tx_id, tx["vin"], current_total_block_public_input, orm_storage_map[tableColumnsToString[TableColumn::TransparentInputs]]);
+                TransparentOutputs(tx_id, tx["vout"], current_total_block_public_output, orm_storage_map[tableColumnsToString[TableColumn::TransparentOutputs]]);
 
-                this->total_transparent_input += current_total_block_public_input;
-                this->total_transparent_output += current_total_block_public_output;
+                total_transparent_input += current_total_block_public_input;
+                total_transparent_output += current_total_block_public_output;
 
                 std::vector<BlockData> transaction_data = {
                     tx_id,
@@ -105,37 +94,39 @@ std::map<std::string, std::vector<std::vector<BlockData>>> Block::DataToOrmStora
                     std::to_string(current_total_block_public_input),
                     std::to_string(current_total_block_public_output),
                     tx["hex"].asString(),
-                    this->hash,
-                    this->timestamp,
-                    this->height,
+                    hash,
+                    timestamp,
+                    height,
                     std::to_string(tx["vin"].size()),
-                    std::to_string(static_cast<uint64_t>(tx["vout"].size()))};
+                    std::to_string(static_cast<size_t>(tx["vout"].size()))
+                };
 
-                orm_storage_map["transaction"].emplace_back(transaction_data);
+                orm_storage_map[tableColumnsToString[TableColumn::Transactions]].emplace_back(std::move(transaction_data));
                 ++currentTransactionIndex;
             }
+            transaction_ids_database_representation += "}";
         }
 
         std::vector<BlockData> block_data = {
-            this->hash,
-            std::to_string(this->height),
-            this->timestamp,
-            this->nonce,
-            std::to_string(this->size),
-            std::to_string(this->num_transactions),
-            std::to_string(this->total_transparent_output),
-            std::to_string(this->difficulty),
-            this->chainwork,
-            this->merkle_root,
-            std::to_string(this->version),
-            this->bits,
-            this->transaction_ids_database_representation,
-            std::to_string(this->total_outputs),
-            std::to_string(this->total_inputs),
-            std::to_string(this->total_transparent_input),
+            std::move(hash),
+            std::to_string(height),
+            std::move(timestamp),
+            std::move(nonce),
+            std::to_string(size),
+            std::to_string(num_transactions),
+            std::to_string(total_transparent_output),
+            std::to_string(difficulty),
+            std::move(chainwork),
+            std::move(merkle_root),
+            std::to_string(version),
+            std::move(bits),
+            std::move(transaction_ids_database_representation),
+            std::to_string(total_outputs),
+            std::to_string(total_inputs),
+            std::to_string(total_transparent_input),
             ""};
 
-        orm_storage_map["block"].emplace_back(block_data);
+        orm_storage_map[tableColumnsToString[TableColumn::Blocks]].emplace_back(block_data);
     }
     catch (const std::exception &e)
     {
@@ -146,17 +137,14 @@ std::map<std::string, std::vector<std::vector<BlockData>>> Block::DataToOrmStora
     return orm_storage_map;
 }
 
-void Block::_storeTransparentInputs(const std::string &tx_id, const Json::Value &inputs, double &total_transparent_input, std::vector<std::vector<BlockData>> &transparent_transaction_inputs_values)
+void Block::TransparentInputs(const std::string &tx_id, const Json::Value &inputs, double &total_transparent_input, std::vector<std::vector<BlockData>> &transparent_transaction_inputs_values)
 {
-
-    if (inputs.size() > 0)
+    if (inputs.isArray() && inputs.size() > 0)
     {
-
         std::string vin_tx_id;
         uint32_t v_out_idx;
         std::string coinbase{""};
         std::string senders{"{}"};
-
         double current_input_value{0.0};
 
         for (const Json::Value &input : inputs)
@@ -197,18 +185,16 @@ void Block::_storeTransparentInputs(const std::string &tx_id, const Json::Value 
                     total_transparent_input += current_input_value;
                 }
 
-                senders = "{}";
-                current_input_value = 0.0;
+                std::vector<BlockData> temp_vec = {
+                    tx_id,
+                    std::move(vin_tx_id),
+                    static_cast<uint64_t>(v_out_idx),
+                    current_input_value,
+                    std::move(senders),
+                    std::move(coinbase)
+                };
 
-                std::vector<BlockData> temp_vec;
-                temp_vec.push_back(tx_id);
-                temp_vec.push_back(vin_tx_id);
-                temp_vec.push_back(static_cast<uint64_t>(v_out_idx));
-                temp_vec.push_back(current_input_value);
-                temp_vec.push_back(senders);
-                temp_vec.push_back(coinbase);
-
-                transparent_transaction_inputs_values.push_back(temp_vec);
+                transparent_transaction_inputs_values.emplace_back(temp_vec);
             }
             catch (const pqxx::sql_error &e)
             {
@@ -220,11 +206,15 @@ void Block::_storeTransparentInputs(const std::string &tx_id, const Json::Value 
                 spdlog::error(e.what());
                 throw;
             }
+
+            // Reset for next iteration
+            senders = "{}";
+            current_input_value = 0.0;
         }
     }
 }
 
-void Block::_storeTransparentOutputs(const std::string &tx_id, const Json::Value &outputs, double &total_public_output, std::vector<std::vector<BlockData>> &transparent_transaction_output_values)
+void Block::TransparentOutputs(const std::string &tx_id, const Json::Value &outputs, double &total_public_output, std::vector<std::vector<BlockData>> &transparent_transaction_output_values)
 {
 
     double currentOutputValue{0.0};
@@ -233,8 +223,8 @@ void Block::_storeTransparentOutputs(const std::string &tx_id, const Json::Value
     if (outputs.size() > 0)
     {
         size_t outputIndex{0};
-        std::vector<std::string> recipients;
         std::string recipientList;
+        std::vector<std::string> recipients;
         for (const Json::Value &vOutEntry : outputs)
         {
             try
@@ -248,6 +238,7 @@ void Block::_storeTransparentOutputs(const std::string &tx_id, const Json::Value
                 recipientList = "{";
                 if (vOutAddresses.isArray() && vOutAddresses.size() > 0)
                 {
+                    recipients.reserve(vOutAddresses.size());
                     for (const Json::Value &vOutAddress : vOutAddresses)
                     {
                         recipients.push_back(vOutAddress.asString());
@@ -267,8 +258,9 @@ void Block::_storeTransparentOutputs(const std::string &tx_id, const Json::Value
                 transparent_transaction_output_values.emplace_back(std::vector<BlockData>{
                     tx_id,
                     std::to_string(outputIndex),
-                    recipientList,
-                    std::to_string(currentOutputValue)});
+                    std::move(recipientList),
+                    std::to_string(currentOutputValue)
+                });
 
                 recipients.clear();
                 recipientList.clear();
